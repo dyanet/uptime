@@ -6,36 +6,32 @@ A single-binary domain monitor that checks DNS, SSL, HTTP, and content changes o
 
 ## Run it in 60 seconds
 
-1. Create a `domains.txt` file:
+1. Set up your `data/` directory:
 
+```bash
+mkdir data
+cp example.env data/env       # edit with your SMTP credentials
+vi data/env
 ```
+
+2. Add your domains:
+
+```bash
+cat > data/domains.txt <<EOF
 example.com
 shop.example.com
+EOF
 ```
 
-2. Run with Docker:
+3. Run:
 
 ```bash
-# Copy and edit the example env file
-cp example.env .env
-
-docker run --rm -v ./data:/data --env-file .env ghcr.io/dyanet/uptime:latest
+docker run --rm -v ./data:/data ghcr.io/dyanet/uptime:latest
 ```
 
-Or pass env vars inline:
+That's it. Config, domains, baselines, and uptime logs all live in `./data/`.
 
-```bash
-docker run --rm -v ./data:/data \
-  -e UPTIME_DOMAINS=/data/domains.txt \
-  -e UPTIME_SENDER=monitor@example.com \
-  -e UPTIME_RECIPIENT=ops@example.com \
-  -e UPTIME_SMTP_HOST=email-smtp.us-east-1.amazonaws.com \
-  -e UPTIME_SMTP_USER=your-smtp-user \
-  -e UPTIME_SMTP_PASS=your-smtp-password \
-  ghcr.io/dyanet/uptime:latest
-```
-
-That's it. Baselines and uptime logs persist in `./data/`.
+The container automatically reads `data/env` on startup — no `-e` flags or `--env-file` needed.
 
 ### Without Docker
 
@@ -119,18 +115,11 @@ jq -s 'group_by(.domain) | map({domain: .[0].domain, pct: (map(select(.up)) | le
 
 Send failures are logged but never stop monitoring.
 
-## Build from source
-
-```bash
-cargo build --release
-./target/release/uptime --domains domains.txt --sender ... --recipient ... --smtp-host ...
-```
-
 ## Docker
 
 ```bash
 docker build -t uptime .
-docker run --rm -v ./data:/data -e UPTIME_DOMAINS=/data/domains.txt ... uptime
+docker run --rm -v ./data:/data uptime
 ```
 
-The Dockerfile uses a multi-stage build: compiles a release binary in the Rust image, copies it into a slim Debian runtime.
+The container sources `/data/env` on startup if it exists, so all config lives in your data mount. The Dockerfile uses a multi-stage build: compiles a release binary in the Rust image, copies it into a slim Debian runtime.
