@@ -92,14 +92,16 @@ fn build_smtp_transport(config: &AlertConfig) -> Result<AsyncSmtpTransport<Tokio
 /// Per Requirement 6.5, send failures are logged but **not** propagated.
 pub async fn send_error_email(
     config: &AlertConfig,
+    recipient_override: Option<&str>,
     domain: &str,
     error_type: &str,
     detail: &str,
 ) -> Result<(), AppError> {
     let body_text = format_error_email_body(domain, error_type, detail);
     let subject = format!("[ALERT] {error_type} — {domain}");
+    let to = recipient_override.unwrap_or(&config.recipient);
 
-    if let Err(e) = send_smtp_email(config, &subject, &body_text).await {
+    if let Err(e) = send_smtp_email(config, to, &subject, &body_text).await {
         error!("Failed to send error email for {domain}: {e}");
     }
     Ok(())
@@ -110,6 +112,7 @@ pub async fn send_error_email(
 /// Per Requirement 6.5, send failures are logged but **not** propagated.
 pub async fn send_warning_email(
     config: &AlertConfig,
+    recipient_override: Option<&str>,
     domain: &str,
     description: &str,
     old_size: u64,
@@ -117,9 +120,24 @@ pub async fn send_warning_email(
 ) -> Result<(), AppError> {
     let body_text = format_warning_email_body(domain, description, old_size, new_size);
     let subject = format!("[WARNING] Content change — {domain}");
+    let to = recipient_override.unwrap_or(&config.recipient);
 
-    if let Err(e) = send_smtp_email(config, &subject, &body_text).await {
+    if let Err(e) = send_smtp_email(config, to, &subject, &body_text).await {
         error!("Failed to send warning email for {domain}: {e}");
+    }
+    Ok(())
+}
+
+/// Send an informational email (startup/shutdown notifications).
+///
+/// Failures are logged but not propagated.
+pub async fn send_info_email(
+    config: &AlertConfig,
+    subject: &str,
+    body_text: &str,
+) -> Result<(), AppError> {
+    if let Err(e) = send_smtp_email(config, &config.recipient, subject, body_text).await {
+        error!("Failed to send info email: {e}");
     }
     Ok(())
 }
@@ -127,12 +145,13 @@ pub async fn send_warning_email(
 /// Low-level helper: send a single email through SMTP.
 async fn send_smtp_email(
     config: &AlertConfig,
+    recipient: &str,
     subject: &str,
     body_text: &str,
 ) -> Result<(), AppError> {
     let email = Message::builder()
         .from(config.sender.parse().map_err(|e| AppError::Ses(format!("invalid sender: {e}")))?)
-        .to(config.recipient.parse().map_err(|e| AppError::Ses(format!("invalid recipient: {e}")))?)
+        .to(recipient.parse().map_err(|e| AppError::Ses(format!("invalid recipient: {e}")))?)
         .subject(subject)
         .header(ContentType::TEXT_PLAIN)
         .body(body_text.to_string())

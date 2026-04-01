@@ -67,6 +67,7 @@ pub struct AppConfig {
     pub smtp_pass: String,
     pub smtp_tls: bool,
     pub log_file: PathBuf,
+    pub interval_str: String,
 }
 
 /// Parse an interval string into a `Duration`.
@@ -108,5 +109,6 @@ pub fn parse_config() -> Result<AppConfig, AppError> {
         smtp_pass: args.smtp_pass,
         smtp_tls: args.smtp_tls,
         log_file: PathBuf::from(args.log_file),
+        interval_str: args.interval,
     })
 }

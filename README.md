@@ -70,15 +70,21 @@ Every option works as a CLI flag or an environment variable. Env vars are the re
 
 ## Domain File Format
 
-Plain text, one domain per line. `#` comments and blank lines are ignored.
+CSV-style, one domain per line. `#` comments and blank lines are ignored.
 
 ```
-# Production
-example.com
-shop.example.com
+# domain,recipient,interval
+# recipient and interval are optional — omit or leave empty to use global defaults
 
-# Staging
+# Production — alerts go to ops team, check every 30 minutes
+example.com,ops@example.com,30m
+shop.example.com,ops@example.com,30m
+
+# Staging — use global defaults
 staging.example.com
+
+# Marketing site — different recipient, check every 3 hours
+blog.example.com,marketing@example.com,3h
 ```
 
 Invalid domains are skipped with a warning in the log.
@@ -110,8 +116,9 @@ jq -s 'group_by(.domain) | map({domain: .[0].domain, pct: (map(select(.up)) | le
 
 ## Alerts
 
-- **Error emails** — DNS failure, SSL error, HTTP 4xx/5xx, timeout/refused
-- **Warning emails** — home page content changed (SHA-256 hash differs from baseline)
+- **Startup/shutdown emails** — sent to the global recipient when the monitor starts and stops (SIGTERM/Ctrl+C)
+- **Error emails** — DNS failure, SSL error, HTTP 4xx/5xx, timeout/refused (sent to per-domain recipient if configured)
+- **Warning emails** — home page content changed (sent to per-domain recipient if configured)
 
 Send failures are logged but never stop monitoring.
 
