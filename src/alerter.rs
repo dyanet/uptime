@@ -72,14 +72,18 @@ pub fn format_warning_email_body(
 fn build_smtp_transport(config: &AlertConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, AppError> {
     let creds = Credentials::new(config.smtp_user.clone(), config.smtp_pass.clone());
 
-    let builder = if config.smtp_tls {
-        // STARTTLS on the given port (typically 587)
-        AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.smtp_host)
+    let builder = if !config.smtp_tls {
+        // No TLS at all (rare, testing only)
+        AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.smtp_host)
+            .port(config.smtp_port)
+    } else if config.smtp_port == 465 {
+        // Implicit TLS (port 465) — connection is TLS from the start
+        AsyncSmtpTransport::<Tokio1Executor>::relay(&config.smtp_host)
             .map_err(|e| AppError::Ses(format!("SMTP relay error: {e}")))?
             .port(config.smtp_port)
     } else {
-        // Implicit TLS (typically port 465)
-        AsyncSmtpTransport::<Tokio1Executor>::relay(&config.smtp_host)
+        // STARTTLS (port 587) — plaintext then upgrade
+        AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.smtp_host)
             .map_err(|e| AppError::Ses(format!("SMTP relay error: {e}")))?
             .port(config.smtp_port)
     };

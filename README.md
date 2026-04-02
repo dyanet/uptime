@@ -65,7 +65,7 @@ Every option works as a CLI flag or an environment variable. Env vars are the re
 | `--smtp-port` | `UPTIME_SMTP_PORT` | `587` | SMTP server port |
 | `--smtp-user` | `UPTIME_SMTP_USER` | *(required)* | SMTP username |
 | `--smtp-pass` | `UPTIME_SMTP_PASS` | *(required)* | SMTP password |
-| `--smtp-tls` | `UPTIME_SMTP_TLS` | `true` | STARTTLS (587). Set `false` for implicit TLS (465) |
+| `--smtp-tls` | `UPTIME_SMTP_TLS` | `true` | Enable TLS. Port 465 = implicit TLS, port 587 = STARTTLS |
 | `--log-file` | `UPTIME_LOG_FILE` | `/data/uptime.jsonl` | JSONL uptime log path |
 
 ## Domain File Format
