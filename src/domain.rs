@@ -3,12 +3,14 @@ use std::path::Path;
 use std::time::Duration;
 
 use log::warn;
+use serde::{Deserialize, Serialize};
 
 use crate::config::parse_interval;
 use crate::types::AppError;
 
 /// A domain entry with optional per-domain recipient and interval overrides.
-#[derive(Debug, Clone, PartialEq)]
+/// Reads only the first three columns from CSV; extra columns (status, date, stripe, key) are ignored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DomainEntry {
     pub domain: String,
     pub recipient: Option<String>,
@@ -42,14 +44,22 @@ fn is_valid_domain(domain: &str) -> bool {
 }
 
 /// Parse a single line from the domains file.
-/// Format: `domain[,recipient][,interval]`
-/// Fields are comma-separated. Empty fields use global defaults.
+/// Format: `domain[,recipient][,interval][,status][,date][,stripe][,key]`
+/// Only the first three fields are used; extra columns (from the portal) are ignored.
+/// Rows with status=Disabled are skipped so disabled domains are excluded from monitoring.
 fn parse_domain_line(line: &str) -> Option<DomainEntry> {
-    let parts: Vec<&str> = line.splitn(3, ',').map(|s| s.trim()).collect();
+    let parts: Vec<&str> = line.splitn(8, ',').map(|s| s.trim()).collect();
 
     let domain = parts[0];
     if !is_valid_domain(domain) {
         return None;
+    }
+
+    // If a 4th column (status) exists and equals "Disabled", skip this domain.
+    if let Some(status) = parts.get(3) {
+        if *status == "Disabled" {
+            return None;
+        }
     }
 
     let recipient = parts.get(1)
@@ -65,8 +75,10 @@ fn parse_domain_line(line: &str) -> Option<DomainEntry> {
     })
 }
 
-/// Reads domain file, skips empty lines and comments (lines starting with #).
-/// Format: `domain[,recipient][,interval]`
+/// Reads domain file (CSV or TXT), skips empty lines and comments (lines starting with #).
+/// Format: `domain[,recipient][,interval][,status][,date][,stripe][,key]`
+/// Extra columns beyond the first three are ignored (used by the portal).
+/// Rows with status=Disabled are excluded from monitoring.
 /// Returns valid domain entries, logs warnings for invalid ones.
 pub fn load_domains(path: &Path) -> Result<Vec<DomainEntry>, AppError> {
     let content = fs::read_to_string(path).map_err(|e| {
@@ -178,6 +190,36 @@ mod tests {
     fn test_file_not_found_returns_error() {
         let result = load_domains(Path::new("/nonexistent/domains.txt"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_csv_with_extra_columns() {
+        let f = write_temp_file("example.com,ops@example.com,1h,Free,2025-07-10,,somekey\n");
+        let entries = load_domains(f.path()).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].domain, "example.com");
+        assert_eq!(entries[0].recipient, Some("ops@example.com".to_string()));
+        assert_eq!(entries[0].interval, Some(Duration::from_secs(60 * 60)));
+    }
+
+    #[test]
+    fn test_skips_disabled_domains() {
+        let f = write_temp_file(
+            "active.com,ops@a.com,1h,Free,2025-07-10,,key1\n\
+             disabled.com,ops@b.com,,Disabled,2025-06-01,,key2\n\
+             paid.com,ops@c.com,3h,Paid,2025-06-01,sub_123,key3\n"
+        );
+        let entries = load_domains(f.path()).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].domain, "active.com");
+        assert_eq!(entries[1].domain, "paid.com");
+    }
+
+    #[test]
+    fn test_load_plain_txt_still_works() {
+        let f = write_temp_file("example.com\ntest.org\n");
+        let entries = load_domains(f.path()).unwrap();
+        assert_eq!(entries.len(), 2);
     }
 
     #[test]

@@ -1,4 +1,5 @@
-/target
+target/
 .kiro/
 .env
 data/
+uptime-pvt/

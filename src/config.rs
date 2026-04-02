@@ -9,7 +9,7 @@ use crate::types::AppError;
 #[derive(Parser, Debug)]
 #[command(name = "domain-monitor")]
 struct CliArgs {
-    /// Path to the domain list file
+    /// Path to the domain list file (CSV or TXT)
     #[arg(long = "domains", env = "UPTIME_DOMAINS")]
     domain_file: String,
 
