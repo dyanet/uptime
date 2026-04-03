@@ -3,6 +3,7 @@ mod baseline;
 mod checker;
 mod config;
 mod domain;
+mod ghost;
 mod types;
 mod uptime_log;
 
@@ -52,6 +53,18 @@ async fn main() {
         }
     };
 
+    // Sync new recipient emails to Ghost CMS (if configured).
+    if let Some(ghost_config) = ghost::GhostConfig::from_env() {
+        let unique_emails: Vec<&str> = entries
+            .iter()
+            .filter_map(|e| e.recipient.as_deref())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        let synced_file = cfg.log_file.with_file_name("ghost_synced.txt");
+        ghost::sync_new_emails(&ghost_config, &unique_emails, &synced_file).await;
+    }
+
     let alert_config = AlertConfig {
         sender: cfg.sender_email.clone(),
         recipient: cfg.recipient_email.clone(),
@@ -67,13 +80,20 @@ async fn main() {
 
     // Send startup notification.
     let startup_body = format!(
-        "Domain Monitor Started\n\nMonitoring {} domains: {}\nDefault interval: {}\nTimestamp: {}",
+        "Uptime Monitor — Started\n\
+         =========================\n\n\
+         Monitoring {} domains: {}\n\
+         Default interval: {}\n\
+         Timestamp: {}\n\n\
+         Checks: DNS resolution, SSL certificate, HTTP status, content changes\n\
+         Alerts: You'll receive an email the moment any issue is detected.\n\n\
+         — Uptime Monitor\n",
         entries.len(),
         domain_names.join(", "),
         &cfg.interval_str,
         Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
     );
-    let _ = alerter::send_info_email(&alert_config, "[INFO] Domain Monitor Started", &startup_body).await;
+    let _ = alerter::send_info_email(&alert_config, "[Uptime Monitor] Monitoring started", &startup_body).await;
 
     // Group domains by their effective interval for scheduling.
     let mut interval_groups: HashMap<Duration, Vec<&DomainEntry>> = HashMap::new();
@@ -177,11 +197,16 @@ async fn main() {
                 _ = signal::ctrl_c() => {
                     info!("Shutdown signal received");
                     let shutdown_body = format!(
-                        "Domain Monitor Stopped\n\nTimestamp: {}",
+                        "Uptime Monitor — Stopped\n\
+                         =========================\n\n\
+                         Timestamp: {}\n\n\
+                         Monitoring has stopped. Domains are no longer being checked.\n\
+                         Restart the monitor to resume health checks and alerts.\n\n\
+                         — Uptime Monitor\n",
                         Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
                     );
                     let _ = alerter::send_info_email(
-                        &alert_config, "[INFO] Domain Monitor Stopped", &shutdown_body,
+                        &alert_config, "[Uptime Monitor] Monitoring stopped", &shutdown_body,
                     ).await;
                     std::process::exit(0);
                 }

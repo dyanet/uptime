@@ -36,12 +36,23 @@ pub enum AlertDecision {
 pub fn format_error_email_body(domain: &str, error_type: &str, detail: &str) -> String {
     let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
     format!(
-        "Domain Monitor Alert\n\
+        "Uptime Monitor — Alert\n\
+         =======================\n\
          \n\
          Domain:     {domain}\n\
          Error Type: {error_type}\n\
          Detail:     {detail}\n\
-         Timestamp:  {timestamp}\n"
+         Timestamp:  {timestamp}\n\
+         \n\
+         Next steps:\n\
+         - Check your domain's DNS records for {domain}\n\
+         - Verify your SSL certificate is valid and not expired\n\
+         - Confirm your web server is running and accessible\n\
+         - Review your dashboard for uptime history\n\
+         \n\
+         This check will automatically retry on the next cycle.\n\
+         \n\
+         — Uptime Monitor\n"
     )
 }
 
@@ -54,13 +65,23 @@ pub fn format_warning_email_body(
 ) -> String {
     let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
     format!(
-        "Domain Monitor Warning\n\
+        "Uptime Monitor — Content Change\n\
+         ================================\n\
          \n\
          Domain:      {domain}\n\
          Change:      {description}\n\
          Old Size:    {old_size} bytes\n\
          New Size:    {new_size} bytes\n\
-         Timestamp:   {timestamp}\n"
+         Timestamp:   {timestamp}\n\
+         \n\
+         Next steps:\n\
+         - If you deployed a change, this is expected — no action needed\n\
+         - If unexpected, check for unauthorized changes to {domain}\n\
+         - Review your dashboard for full uptime history\n\
+         \n\
+         The new content is now your baseline for future comparisons.\n\
+         \n\
+         — Uptime Monitor\n"
     )
 }
 
@@ -102,7 +123,7 @@ pub async fn send_error_email(
     detail: &str,
 ) -> Result<(), AppError> {
     let body_text = format_error_email_body(domain, error_type, detail);
-    let subject = format!("[ALERT] {error_type} — {domain}");
+    let subject = format!("[Uptime Monitor] ALERT: {error_type} — {domain}");
     let to = recipient_override.unwrap_or(&config.recipient);
 
     if let Err(e) = send_smtp_email(config, to, &subject, &body_text).await {
@@ -123,7 +144,7 @@ pub async fn send_warning_email(
     new_size: u64,
 ) -> Result<(), AppError> {
     let body_text = format_warning_email_body(domain, description, old_size, new_size);
-    let subject = format!("[WARNING] Content change — {domain}");
+    let subject = format!("[Uptime Monitor] Content changed — {domain}");
     let to = recipient_override.unwrap_or(&config.recipient);
 
     if let Err(e) = send_smtp_email(config, to, &subject, &body_text).await {
