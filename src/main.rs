@@ -3,6 +3,7 @@ mod baseline;
 mod checker;
 mod config;
 mod domain;
+mod error_log;
 mod ghost;
 mod types;
 mod uptime_log;
@@ -73,6 +74,7 @@ async fn main() {
         smtp_user: cfg.smtp_user.clone(),
         smtp_pass: cfg.smtp_pass.clone(),
         smtp_tls: cfg.smtp_tls,
+        error_log: cfg.error_log.clone(),
     };
 
     let timeout = Duration::from_secs(30);

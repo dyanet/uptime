@@ -52,6 +52,10 @@ struct CliArgs {
     /// Path to the JSONL uptime log file
     #[arg(long = "log-file", env = "UPTIME_LOG_FILE", default_value = "/data/uptime.jsonl")]
     log_file: String,
+
+    /// Path to the JSONL error log file
+    #[arg(long = "error-log", env = "UPTIME_ERROR_LOG", default_value = "/data/errors.jsonl")]
+    error_log: String,
 }
 
 /// Parsed and validated application configuration.
@@ -67,6 +71,7 @@ pub struct AppConfig {
     pub smtp_pass: String,
     pub smtp_tls: bool,
     pub log_file: PathBuf,
+    pub error_log: PathBuf,
     pub interval_str: String,
 }
 
@@ -109,6 +114,7 @@ pub fn parse_config() -> Result<AppConfig, AppError> {
         smtp_pass: args.smtp_pass,
         smtp_tls: args.smtp_tls,
         log_file: PathBuf::from(args.log_file),
+        error_log: PathBuf::from(args.error_log),
         interval_str: args.interval,
     })
 }

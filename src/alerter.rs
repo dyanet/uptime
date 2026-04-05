@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use chrono::Utc;
 use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials;
@@ -5,6 +7,7 @@ use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use log::error;
 
 use crate::checker::is_http_error;
+use crate::error_log;
 use crate::types::{AppError, CheckResult};
 
 /// Configuration for sending alert emails via SMTP.
@@ -16,6 +19,7 @@ pub struct AlertConfig {
     pub smtp_user: String,
     pub smtp_pass: String,
     pub smtp_tls: bool,
+    pub error_log: PathBuf,
 }
 
 /// What kind of alert (if any) should be sent for a check result.
@@ -128,6 +132,7 @@ pub async fn send_error_email(
 
     if let Err(e) = send_smtp_email(config, to, &subject, &body_text).await {
         error!("Failed to send error email for {domain}: {e}");
+        error_log::log_error(&config.error_log, "monitor", "email", &format!("error email for {domain}: {e}"));
     }
     Ok(())
 }
@@ -149,6 +154,7 @@ pub async fn send_warning_email(
 
     if let Err(e) = send_smtp_email(config, to, &subject, &body_text).await {
         error!("Failed to send warning email for {domain}: {e}");
+        error_log::log_error(&config.error_log, "monitor", "email", &format!("warning email for {domain}: {e}"));
     }
     Ok(())
 }
@@ -163,6 +169,7 @@ pub async fn send_info_email(
 ) -> Result<(), AppError> {
     if let Err(e) = send_smtp_email(config, &config.recipient, subject, body_text).await {
         error!("Failed to send info email: {e}");
+        error_log::log_error(&config.error_log, "monitor", "email", &format!("info email '{subject}': {e}"));
     }
     Ok(())
 }
