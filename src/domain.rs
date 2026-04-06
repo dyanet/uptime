@@ -55,9 +55,9 @@ fn parse_domain_line(line: &str) -> Option<DomainEntry> {
         return None;
     }
 
-    // If a 4th column (status) exists and equals "Disabled", skip this domain.
+    // If a 4th column (status) exists and equals "Disabled" or "Lapsed", skip this domain.
     if let Some(status) = parts.get(3) {
-        if *status == "Disabled" {
+        if *status == "Disabled" || *status == "Lapsed" {
             return None;
         }
     }
@@ -207,6 +207,19 @@ mod tests {
         let f = write_temp_file(
             "active.com,ops@a.com,1h,Free,2025-07-10,,key1\n\
              disabled.com,ops@b.com,,Disabled,2025-06-01,,key2\n\
+             paid.com,ops@c.com,3h,Paid,2025-06-01,sub_123,key3\n"
+        );
+        let entries = load_domains(f.path()).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].domain, "active.com");
+        assert_eq!(entries[1].domain, "paid.com");
+    }
+
+    #[test]
+    fn test_skips_lapsed_domains() {
+        let f = write_temp_file(
+            "active.com,ops@a.com,1h,Free,2025-07-10,,key1\n\
+             lapsed.com,ops@b.com,,Lapsed,2025-06-01,,key2\n\
              paid.com,ops@c.com,3h,Paid,2025-06-01,sub_123,key3\n"
         );
         let entries = load_domains(f.path()).unwrap();

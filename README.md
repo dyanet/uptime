@@ -1,25 +1,26 @@
-# Uptime
+# Uptime Monitor
 
 [![CI](https://github.com/dyanet/uptime/actions/workflows/ci.yml/badge.svg)](https://github.com/dyanet/uptime/actions/workflows/ci.yml)
 
-A single-binary domain monitor that checks DNS, SSL, HTTP, and content changes on a schedule, sends alert emails via SMTP, and writes a structured uptime log you can graph.
+A single-binary domain monitor that checks DNS, SSL, HTTP, and content changes on a schedule, sends alert emails via SMTP, and writes a structured uptime log.
 
-## Run it in 60 seconds
+## Quick Start
 
 1. Set up your `data/` directory:
 
 ```bash
 mkdir data
-cp example.env data/env       # edit with your SMTP credentials
-vi data/env
+cp example.env data/env
+vi data/env                    # fill in your SMTP credentials
 ```
 
-2. Add your domains:
+2. Add your domains (CSV format, 8 columns — extra columns from the portal are ignored):
 
 ```bash
-cat > data/domains.txt <<EOF
-example.com
-shop.example.com
+cat > data/domains.csv <<EOF
+# domain,recipient,interval,status,date,stripe,key,created_at
+example.com,ops@example.com,1h
+shop.example.com,ops@example.com,30m
 EOF
 ```
 
@@ -29,16 +30,14 @@ EOF
 docker run --rm -v ./data:/data ghcr.io/dyanet/uptime:latest
 ```
 
-That's it. Config, domains, baselines, and uptime logs all live in `./data/`.
-
-The container automatically reads `data/env` on startup — no `-e` flags or `--env-file` needed.
+Config, domains, baselines, and uptime logs all live in `./data/`. The container reads `data/env` on startup automatically.
 
 ### Without Docker
 
 ```bash
 cargo build --release
 ./target/release/uptime \
-  --domains domains.txt \
+  --domains domains.csv \
   --baseline baselines.json \
   --log-file uptime.jsonl \
   --sender monitor@example.com \
@@ -48,37 +47,36 @@ cargo build --release
   --smtp-pass your-smtp-password
 ```
 
-Or set the `UPTIME_*` env vars and just run `./target/release/uptime` with no flags.
+Or set the `UPTIME_*` env vars and run `./target/release/uptime` with no flags.
 
 ## Configuration
 
-Every option works as a CLI flag or an environment variable. Env vars are the recommended way when running in Docker.
+Every option works as a CLI flag or an environment variable.
 
 | CLI Flag | Env Var | Default | Description |
 |----------|---------|---------|-------------|
-| `--domains` | `UPTIME_DOMAINS` | *(required)* | Path to domain list file |
-| `--interval` | `UPTIME_INTERVAL` | `1h` | Check interval: `30m`, `1h`, `3h`, `24h` |
+| `--domains` | `UPTIME_DOMAINS` | *(required)* | Path to domain list file (CSV or plain text) |
+| `--interval` | `UPTIME_INTERVAL` | `1h` | Default check interval: `30m`, `1h`, `3h`, `24h` |
 | `--baseline` | `UPTIME_BASELINE` | `/data/baselines.json` | Baseline persistence file |
 | `--sender` | `UPTIME_SENDER` | *(required)* | From email address |
-| `--recipient` | `UPTIME_RECIPIENT` | *(required)* | To email address |
+| `--recipient` | `UPTIME_RECIPIENT` | *(required)* | Default To email address |
 | `--smtp-host` | `UPTIME_SMTP_HOST` | *(required)* | SMTP server hostname |
 | `--smtp-port` | `UPTIME_SMTP_PORT` | `587` | SMTP server port |
 | `--smtp-user` | `UPTIME_SMTP_USER` | *(required)* | SMTP username |
 | `--smtp-pass` | `UPTIME_SMTP_PASS` | *(required)* | SMTP password |
-| `--smtp-tls` | `UPTIME_SMTP_TLS` | `true` | Enable TLS. Port 465 = implicit TLS, port 587 = STARTTLS |
+| `--smtp-tls` | `UPTIME_SMTP_TLS` | `true` | Enable TLS (port 465 = implicit, port 587 = STARTTLS) |
 | `--log-file` | `UPTIME_LOG_FILE` | `/data/uptime.jsonl` | JSONL uptime log path |
+| `--error-log` | `UPTIME_ERROR_LOG` | `/data/errors.jsonl` | JSONL error log path |
 
 ## Domain File Format
 
-CSV-style, one domain per line. `#` comments and blank lines are ignored.
+CSV, one domain per line. Comments (`#`) and blank lines are ignored. The monitor reads the first 4 columns and ignores the rest (columns 5–8 are managed by the portal).
 
 ```
-# domain,recipient,interval
-# recipient and interval are optional — omit or leave empty to use global defaults
+# domain,recipient,interval,status,date,stripe,key,created_at
 
 # Production — alerts go to ops team, check every 30 minutes
-example.com,ops@example.com,30m
-shop.example.com,ops@example.com,30m
+example.com,ops@example.com,30m,Paid,2025-07-10,sub_123,abc123,2025-01-01
 
 # Staging — use global defaults
 staging.example.com
@@ -87,11 +85,15 @@ staging.example.com
 blog.example.com,marketing@example.com,3h
 ```
 
-Invalid domains are skipped with a warning in the log.
+The monitor skips rows with status `Disabled` or `Lapsed`. All other statuses (`Free`, `Paid`, `Verifying`, `Internal`) are monitored. Multiple rows for the same domain (different watchers) are handled correctly — each gets independent checks.
+
+## Hot Reload
+
+The monitor re-reads the domain file every 30 minutes. If the file has changed, it rebuilds its interval groups and starts/stops monitoring domains accordingly. No container restart needed.
 
 ## Uptime Log
 
-Each check appends a JSON line to the log file. The `up` field is the key boolean for graphing.
+Each check appends a JSON line to the log file:
 
 ```json
 {"timestamp":"2026-03-31T14:22:01Z","domain":"example.com","up":true,"dns_ok":true,"http_status":200,"ssl_error":null,"response_size":45230,"error":null}
@@ -116,9 +118,9 @@ jq -s 'group_by(.domain) | map({domain: .[0].domain, pct: (map(select(.up)) | le
 
 ## Alerts
 
-- **Startup/shutdown emails** — sent to the global recipient when the monitor starts and stops (SIGTERM/Ctrl+C)
-- **Error emails** — DNS failure, SSL error, HTTP 4xx/5xx, timeout/refused (sent to per-domain recipient if configured)
-- **Warning emails** — home page content changed (sent to per-domain recipient if configured)
+- Startup/shutdown emails — sent to the global recipient when the monitor starts and stops
+- Error emails — DNS failure, SSL error, HTTP 4xx/5xx, timeout/refused (sent to per-domain recipient if configured)
+- Warning emails — home page content changed (sent to per-domain recipient if configured)
 
 Send failures are logged but never stop monitoring.
 
@@ -129,4 +131,4 @@ docker build -t uptime .
 docker run --rm -v ./data:/data uptime
 ```
 
-The container sources `/data/env` on startup if it exists, so all config lives in your data mount. The Dockerfile uses a multi-stage build: compiles a release binary in the Rust image, copies it into a slim Debian runtime.
+The container sources `/data/env` on startup if it exists. Multi-stage build: compiles a release binary in the Rust image, copies it into a slim Debian runtime.

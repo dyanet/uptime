@@ -34,7 +34,7 @@ async fn main() {
         }
     };
 
-    let entries = match domain::load_domains(&cfg.domain_file) {
+    let mut entries = match domain::load_domains(&cfg.domain_file) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("Error: {e}");
@@ -97,11 +97,16 @@ async fn main() {
     );
     let _ = alerter::send_info_email(&alert_config, "[Uptime Monitor] Monitoring started", &startup_body).await;
 
+    // Re-read the domain file every 30 minutes so additions/removals
+    // take effect without restarting the container.
+    const DOMAIN_RELOAD_SECS: u64 = 1800;
+    let mut last_domain_reload = std::time::Instant::now();
+
     // Group domains by their effective interval for scheduling.
-    let mut interval_groups: HashMap<Duration, Vec<&DomainEntry>> = HashMap::new();
+    let mut interval_groups: HashMap<Duration, Vec<DomainEntry>> = HashMap::new();
     for entry in &entries {
         let interval = entry.interval.unwrap_or(cfg.check_interval);
-        interval_groups.entry(interval).or_default().push(entry);
+        interval_groups.entry(interval).or_default().push(entry.clone());
     }
 
     // Track last-check time per interval group.
@@ -116,6 +121,36 @@ async fn main() {
     loop {
         let tick_start = std::time::Instant::now();
 
+        // Periodically re-read the domain file to pick up changes.
+        if tick_start.duration_since(last_domain_reload).as_secs() >= DOMAIN_RELOAD_SECS {
+            match domain::load_domains(&cfg.domain_file) {
+                Ok(new_entries) => {
+                    if new_entries != entries {
+                        info!("Domain file changed — reloading ({} domains)", new_entries.len());
+                        entries = new_entries;
+
+                        // Rebuild interval groups from the fresh list.
+                        interval_groups.clear();
+                        for entry in &entries {
+                            let iv = entry.interval.unwrap_or(cfg.check_interval);
+                            interval_groups.entry(iv).or_default().push(entry.clone());
+                        }
+
+                        // Ensure new interval groups get checked promptly.
+                        for iv in interval_groups.keys() {
+                            last_check.entry(*iv).or_insert(tick_start - *iv);
+                        }
+                        // Remove stale interval groups that no longer exist.
+                        last_check.retain(|iv, _| interval_groups.contains_key(iv));
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to reload domain file: {e} — keeping previous list");
+                }
+            }
+            last_domain_reload = tick_start;
+        }
+
         for (&interval, group) in &interval_groups {
             let elapsed = tick_start.duration_since(*last_check.get(&interval).unwrap_or(&tick_start));
             if elapsed < interval {
@@ -125,7 +160,7 @@ async fn main() {
 
             info!("Starting check cycle for {} domains (interval {:?})", group.len(), interval);
 
-            for entry in group {
+            for entry in group.iter() {
                 let d = &entry.domain;
                 let recipient_override = entry.recipient.as_deref();
 
