@@ -1,13 +1,14 @@
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::Path;
 
 use chrono::Utc;
 use serde::Serialize;
 
+pub use uptime_store::types::UptimeEntry;
+
 use crate::types::CheckResult;
 
 /// A single JSONL record for uptime graphing.
+/// This is the local type used to construct entries from CheckResult.
 #[derive(Serialize)]
 pub struct LogEntry {
     pub timestamp: String,
@@ -38,15 +39,30 @@ impl LogEntry {
             error: result.error.clone(),
         }
     }
+
+    /// Convert to the shared UptimeEntry type for storage.
+    pub fn to_entry(&self) -> UptimeEntry {
+        UptimeEntry {
+            timestamp: self.timestamp.clone(),
+            domain: self.domain.clone(),
+            up: self.up,
+            dns_ok: self.dns_ok,
+            http_status: self.http_status,
+            ssl_error: self.ssl_error.clone(),
+            response_size: self.response_size,
+            error: self.error.clone(),
+        }
+    }
 }
 
 /// Append a log entry as a single JSON line to the given file.
 pub fn append_entry(path: &Path, entry: &LogEntry) -> std::io::Result<()> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
-    let line = serde_json::to_string(entry)?;
-    writeln!(file, "{line}")?;
-    Ok(())
+    use uptime_store::file_store::FileStore;
+    use uptime_store::traits::UptimeWriter;
+
+    let store = FileStore::new("", path, "", "");
+    let ue = entry.to_entry();
+    store.append_uptime(&ue).map_err(|e| {
+        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    })
 }
