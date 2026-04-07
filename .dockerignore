@@ -1,8 +1,9 @@
 target
+uptime-pvt/target
+uptime-store/target
 .git
 .kiro
 .gitignore
-uptime-pvt
 docker-compose.yml
 Caddyfile
 data
