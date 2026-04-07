@@ -199,8 +199,9 @@ async fn send_smtp_email(
     subject: &str,
     body_text: &str,
 ) -> Result<(), AppError> {
+    let from_addr = format!("🌐 Uptime Monitor 🕐 <{}>", config.sender);
     let email = Message::builder()
-        .from(config.sender.parse().map_err(|e| AppError::Ses(format!("invalid sender: {e}")))?)
+        .from(from_addr.parse().map_err(|e| AppError::Ses(format!("invalid sender: {e}")))?)
         .to(recipient.parse().map_err(|e| AppError::Ses(format!("invalid recipient: {e}")))?)
         .subject(subject)
         .header(ContentType::TEXT_PLAIN)
