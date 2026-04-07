@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::io;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,21 +56,15 @@ pub fn check_ssl_expiry(domain: &str) -> SslExpiryResult {
         error: None,
     };
 
-    // Build a rustls client config that captures the certificate.
+    // Ensure a crypto provider is installed (idempotent after first call).
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let mut root_store = rustls::RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-    let config = match rustls::ClientConfig::builder()
+    let config = rustls::ClientConfig::builder()
         .with_root_certificates(root_store)
-        .with_no_client_auth()
-        .try_into() as Result<rustls::ClientConfig, _>
-    {
-        Ok(c) => c,
-        Err(e) => {
-            result.error = Some(format!("TLS config error: {e}"));
-            return result;
-        }
-    };
+        .with_no_client_auth();
 
     let server_name = match ServerName::try_from(domain.to_string()) {
         Ok(sn) => sn,
@@ -88,45 +82,47 @@ pub fn check_ssl_expiry(domain: &str) -> SslExpiryResult {
         }
     };
 
+    // Resolve and connect with timeout.
     let addr = format!("{domain}:443");
-    let mut sock = match TcpStream::connect_timeout(
-        &match addr.parse() {
-            Ok(a) => a,
-            Err(_) => {
-                // Resolve hostname first.
-                use std::net::ToSocketAddrs;
-                match addr.to_socket_addrs() {
-                    Ok(mut addrs) => match addrs.next() {
-                        Some(a) => a,
-                        None => {
-                            result.error = Some("no addresses resolved".into());
-                            return result;
-                        }
-                    },
-                    Err(e) => {
-                        result.error = Some(format!("DNS resolve: {e}"));
-                        return result;
-                    }
-                }
+    let sock_addr = match addr.to_socket_addrs() {
+        Ok(mut addrs) => match addrs.next() {
+            Some(a) => a,
+            None => {
+                result.error = Some("no addresses resolved".into());
+                return result;
             }
         },
-        Duration::from_secs(10),
-    ) {
+        Err(e) => {
+            result.error = Some(format!("DNS resolve: {e}"));
+            return result;
+        }
+    };
+
+    let mut sock = match TcpStream::connect_timeout(&sock_addr, Duration::from_secs(10)) {
         Ok(s) => s,
         Err(e) => {
             result.error = Some(format!("TCP connect: {e}"));
             return result;
         }
     };
+    let _ = sock.set_read_timeout(Some(Duration::from_secs(10)));
+    let _ = sock.set_write_timeout(Some(Duration::from_secs(10)));
 
-    // Complete the TLS handshake.
-    let mut tls = rustls::Stream::new(&mut conn, &mut sock);
-    if let Err(e) = tls.write_all(b"") {
-        // Trigger handshake; ignore write error on empty payload.
-        let _ = e;
+    // Drive the TLS handshake to completion.
+    loop {
+        if conn.is_handshaking() {
+            match conn.complete_io(&mut sock) {
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(e) => {
+                    result.error = Some(format!("TLS handshake: {e}"));
+                    return result;
+                }
+            }
+        } else {
+            break;
+        }
     }
-    // Read a byte to ensure handshake completes.
-    let _ = tls.read(&mut [0u8; 0]);
 
     // Extract peer certificates.
     let certs = match conn.peer_certificates() {
@@ -147,12 +143,14 @@ pub fn check_ssl_expiry(domain: &str) -> SslExpiryResult {
                     not_after.year() as i32,
                     not_after.month() as u32,
                     not_after.day() as u32,
-                ).unwrap(),
+                )
+                .unwrap(),
                 chrono::NaiveTime::from_hms_opt(
                     not_after.hour() as u32,
                     not_after.minute() as u32,
                     not_after.second() as u32,
-                ).unwrap(),
+                )
+                .unwrap(),
             );
             let now = Utc::now().naive_utc();
             let days = (expiry - now).num_days();
@@ -217,7 +215,6 @@ pub fn format_body(domain: &str, days: i64, expiry_date: &str) -> String {
              - No immediate action required, but don't wait until the last day",
     };
 
-    // Replace {domain} in the action text.
     let action = action.replace("{domain}", domain);
 
     format!(
@@ -288,7 +285,6 @@ mod tests {
 
     #[test]
     fn should_not_alert_between_thresholds_if_already_alerted() {
-        // At 10 days, already alerted at 15 — next threshold is 7, not reached yet.
         assert_eq!(should_alert(10, Some(15)), None);
     }
 
