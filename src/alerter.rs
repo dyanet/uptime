@@ -159,6 +159,24 @@ pub async fn send_warning_email(
     Ok(())
 }
 
+/// Send an SSL certificate expiry warning email.
+///
+/// Failures are logged but not propagated.
+pub async fn send_ssl_expiry_email(
+    config: &AlertConfig,
+    recipient_override: Option<&str>,
+    subject: &str,
+    body_text: &str,
+) -> Result<(), AppError> {
+    let to = recipient_override.unwrap_or(&config.recipient);
+
+    if let Err(e) = send_smtp_email(config, to, subject, body_text).await {
+        error!("Failed to send SSL expiry email: {e}");
+        error_log::log_error(&config.error_log, "monitor", "email", &format!("ssl expiry: {e}"));
+    }
+    Ok(())
+}
+
 /// Send an informational email (startup/shutdown notifications).
 ///
 /// Failures are logged but not propagated.

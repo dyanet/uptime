@@ -5,6 +5,7 @@ mod config;
 mod domain;
 mod error_log;
 mod ghost;
+mod ssl_expiry;
 mod types;
 mod uptime_log;
 
@@ -102,6 +103,11 @@ async fn main() {
     const DOMAIN_RELOAD_SECS: u64 = 1800;
     let mut last_domain_reload = std::time::Instant::now();
 
+    // SSL expiry check: once per day.
+    const SSL_CHECK_SECS: u64 = 86400;
+    let mut last_ssl_check = std::time::Instant::now() - Duration::from_secs(SSL_CHECK_SECS);
+    let mut ssl_alert_state = ssl_expiry::SslAlertState::new();
+
     // Group domains by their effective interval for scheduling.
     let mut interval_groups: HashMap<Duration, Vec<DomainEntry>> = HashMap::new();
     for entry in &entries {
@@ -149,6 +155,39 @@ async fn main() {
                 }
             }
             last_domain_reload = tick_start;
+        }
+
+        // Daily SSL certificate expiry check.
+        if tick_start.duration_since(last_ssl_check).as_secs() >= SSL_CHECK_SECS {
+            info!("Starting daily SSL expiry check for {} domains", entries.len());
+            for entry in &entries {
+                let d = &entry.domain;
+                let result = ssl_expiry::check_ssl_expiry(d);
+
+                if let Some(ref err) = result.error {
+                    warn!("{d}: SSL expiry check failed — {err}");
+                    continue;
+                }
+
+                if let (Some(days), Some(expiry_date)) = (result.days_remaining, &result.expiry_date) {
+                    info!("{d}: SSL certificate expires in {days} days ({expiry_date})");
+
+                    let last = ssl_alert_state.get(d).copied();
+                    if let Some(threshold) = ssl_expiry::should_alert(days, last) {
+                        let subject = ssl_expiry::format_subject(d, days);
+                        let body = ssl_expiry::format_body(d, days, expiry_date);
+                        let recipient_override = entry.recipient.as_deref();
+
+                        info!("{d}: sending SSL expiry alert ({days} days, threshold {threshold})");
+                        let _ = alerter::send_ssl_expiry_email(
+                            &alert_config, recipient_override, &subject, &body,
+                        ).await;
+
+                        ssl_alert_state.insert(d.clone(), threshold);
+                    }
+                }
+            }
+            last_ssl_check = tick_start;
         }
 
         for (&interval, group) in &interval_groups {

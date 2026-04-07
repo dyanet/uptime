@@ -1,7 +1,5 @@
 use std::path::Path;
 
-use log::warn;
-
 pub use uptime_store::types::{Baseline, BaselineMap};
 
 use crate::types::{AppError, CheckResult};
