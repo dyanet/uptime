@@ -44,4 +44,5 @@ pub struct CheckResult {
     pub body_hash: Option<String>,
     pub body_size: Option<u64>,
     pub error: Option<String>,
+    pub redirected: bool,
 }

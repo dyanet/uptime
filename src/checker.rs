@@ -21,6 +21,7 @@ pub async fn check_domain(domain: &str, timeout: Duration) -> CheckResult {
         body_hash: None,
         body_size: None,
         error: None,
+        redirected: false,
     };
 
     // --- DNS resolution ---
@@ -107,6 +108,11 @@ pub async fn check_domain(domain: &str, timeout: Duration) -> CheckResult {
             return result;
         }
     };
+
+    // --- Detect redirect by comparing final URL to original request URL ---
+    if response.url().as_str() != url {
+        result.redirected = true;
+    }
 
     // --- Record HTTP status ---
     let status = response.status().as_u16();

@@ -80,6 +80,7 @@ mod tests {
             body_hash: Some(hash.to_string()),
             body_size: Some(size),
             error: None,
+            redirected: false,
         }
     }
 

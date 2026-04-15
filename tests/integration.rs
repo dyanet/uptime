@@ -202,6 +202,7 @@ fn file_store_full_round_trip() {
         ssl_error: None,
         response_size: Some(1024),
         error: None,
+        redirected: false,
     };
     store.append_uptime(&entry).unwrap();
     let entries = store.read_uptime("example.com", 30).unwrap();
@@ -263,6 +264,7 @@ fn sql_store_full_round_trip() {
         ssl_error: None,
         response_size: None,
         error: Some("DNS failed".to_string()),
+        redirected: false,
     };
     store.append_uptime(&entry).unwrap();
     let entries = store.read_uptime("sql-test.com", 30).unwrap();
@@ -333,6 +335,7 @@ fn baseline_full_lifecycle() {
         body_hash: Some("hash1".to_string()),
         body_size: Some(1000),
         error: None,
+        redirected: false,
     };
     assert_eq!(compare_and_update(&r1, &mut baselines), BaselineAction::NewBaseline);
 
@@ -351,6 +354,7 @@ fn baseline_full_lifecycle() {
             body_hash: None,
             body_size: None,
             error: None,
+            redirected: false,
         }
     };
     match compare_and_update(&r2, &mut baselines) {
@@ -370,6 +374,7 @@ fn baseline_full_lifecycle() {
         body_hash: Some("hash3".to_string()),
         body_size: Some(500),
         error: None,
+        redirected: false,
     };
     assert_eq!(compare_and_update(&r3, &mut baselines), BaselineAction::Skipped);
 
