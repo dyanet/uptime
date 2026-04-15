@@ -95,6 +95,8 @@ pub struct UptimeEntry {
     pub ssl_error: Option<String>,
     pub response_size: Option<u64>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub redirected: bool,
 }
 
 // ── Baseline ─────────────────────────────────────────────────────────────────
@@ -106,3 +108,73 @@ pub struct Baseline {
 }
 
 pub type BaselineMap = HashMap<String, Baseline>;
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Arbitrary `UptimeEntry` generator for property-based tests.
+    fn arb_uptime_entry() -> impl Strategy<Value = UptimeEntry> {
+        (
+            "[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",  // timestamp
+            "[a-z]{1,10}\\.[a-z]{2,4}",                                  // domain
+            any::<bool>(),                                                // up
+            any::<bool>(),                                                // dns_ok
+            prop::option::of(200u16..600u16),                             // http_status
+            prop::option::of("[a-z ]{0,30}"),                             // ssl_error
+            prop::option::of(0u64..1_000_000u64),                        // response_size
+            prop::option::of("[a-z ]{0,30}"),                             // error
+            any::<bool>(),                                                // redirected
+        )
+            .prop_map(
+                |(timestamp, domain, up, dns_ok, http_status, ssl_error, response_size, error, redirected)| {
+                    UptimeEntry {
+                        timestamp,
+                        domain,
+                        up,
+                        dns_ok,
+                        http_status,
+                        ssl_error,
+                        response_size,
+                        error,
+                        redirected,
+                    }
+                },
+            )
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        /// **Property 1: UptimeEntry serialization round-trip preserves the redirected field**
+        ///
+        /// For any valid `UptimeEntry` with any boolean value for `redirected`,
+        /// serializing to JSON and deserializing back produces an entry with the
+        /// same `redirected` value.
+        ///
+        /// **Validates: Requirements 2.1, 2.2**
+        #[test]
+        fn serialization_round_trip_preserves_redirected(entry in arb_uptime_entry()) {
+            let json = serde_json::to_string(&entry).expect("serialize");
+            let deserialized: UptimeEntry = serde_json::from_str(&json).expect("deserialize");
+            prop_assert_eq!(deserialized.redirected, entry.redirected);
+        }
+
+        /// **Property 2: Legacy entries without redirected field default to false**
+        ///
+        /// For any valid `UptimeEntry`, serializing to JSON, removing the
+        /// `redirected` key (simulating a legacy entry), and deserializing back
+        /// produces an entry with `redirected == false`.
+        ///
+        /// **Validates: Requirements 2.4**
+        #[test]
+        fn legacy_entries_without_redirected_default_to_false(entry in arb_uptime_entry()) {
+            let mut value = serde_json::to_value(&entry).expect("serialize to Value");
+            value.as_object_mut().expect("JSON object").remove("redirected");
+            let deserialized: UptimeEntry = serde_json::from_value(value).expect("deserialize legacy entry");
+            prop_assert_eq!(deserialized.redirected, false);
+        }
+    }
+}

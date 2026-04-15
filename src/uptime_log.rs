@@ -19,6 +19,7 @@ pub struct LogEntry {
     pub ssl_error: Option<String>,
     pub response_size: Option<u64>,
     pub error: Option<String>,
+    pub redirected: bool,
 }
 
 impl LogEntry {
@@ -37,6 +38,7 @@ impl LogEntry {
             ssl_error: result.ssl_error.clone(),
             response_size: result.body_size,
             error: result.error.clone(),
+            redirected: result.redirected,
         }
     }
 
@@ -51,6 +53,7 @@ impl LogEntry {
             ssl_error: self.ssl_error.clone(),
             response_size: self.response_size,
             error: self.error.clone(),
+            redirected: self.redirected,
         }
     }
 }

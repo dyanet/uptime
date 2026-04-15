@@ -280,6 +280,7 @@ mod tests {
             body_hash: Some("abc".to_string()),
             body_size: Some(100),
             error: None,
+            redirected: false,
         }
     }
 
