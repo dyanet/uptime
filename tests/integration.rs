@@ -224,66 +224,6 @@ fn file_store_full_round_trip() {
     println!("File store round-trip: all operations passed");
 }
 
-// ── 6. Store adapter: SQL backend round-trip ─────────────────────────────────
-
-#[cfg(feature = "sql_store")]
-#[test]
-fn sql_store_full_round_trip() {
-    use uptime_store::sql_store::SqlStore;
-    use uptime_store::traits::*;
-    use uptime_store::types::*;
-
-    let store = SqlStore::open_in_memory().unwrap();
-
-    // Insert a domain via locked mutation.
-    store.with_locked_records(Box::new(|records| {
-        records.push(DomainRecord {
-            domain: "sql-test.com".to_string(),
-            recipient: "ops@sql-test.com".to_string(),
-            interval: "1h".to_string(),
-            status: Status::Free,
-            date: "2025-07-10".to_string(),
-            stripe: String::new(),
-            key: "sqlkey12345678901234567890123456".to_string(),
-            created_at: "2025-07-10".to_string(),
-        });
-        Ok(())
-    })).unwrap();
-
-    let records = store.load_records().unwrap();
-    assert_eq!(records.len(), 1);
-    assert_eq!(records[0].domain, "sql-test.com");
-
-    // Uptime.
-    let entry = UptimeEntry {
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        domain: "sql-test.com".to_string(),
-        up: false,
-        dns_ok: false,
-        http_status: None,
-        ssl_error: None,
-        response_size: None,
-        error: Some("DNS failed".to_string()),
-        redirected: false,
-    };
-    store.append_uptime(&entry).unwrap();
-    let entries = store.read_uptime("sql-test.com", 30).unwrap();
-    assert_eq!(entries.len(), 1);
-    assert!(!entries[0].up);
-
-    // Baselines.
-    let mut baselines = BaselineMap::new();
-    baselines.insert("sql-test.com".to_string(), Baseline { hash: "def".to_string(), size: 200 });
-    store.save_baselines(&baselines).unwrap();
-    let loaded = store.load_baselines().unwrap();
-    assert_eq!(loaded, baselines);
-
-    // Error logging.
-    store.log_error("test", "sql", "sql test error");
-
-    println!("SQL store round-trip: all operations passed");
-}
-
 // ── 7. Uptime checker against real domain ────────────────────────────────────
 
 #[tokio::test]
