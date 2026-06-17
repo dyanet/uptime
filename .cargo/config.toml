@@ -1,0 +1,20 @@
+# Convenience aliases for local code-coverage runs (requires cargo-llvm-cov:
+#   cargo install cargo-llvm-cov && rustup component add llvm-tools-preview)
+#
+# `main.rs` is excluded to match CI: it's the async monitoring loop / process
+# entrypoint and isn't unit-testable, so the floors track testable code.
+[alias]
+# Print a coverage summary table.
+cov = ["llvm-cov", "--workspace", "--ignore-filename-regex", "main\\.rs", "--summary-only"]
+
+# Enforce the same floor thresholds CI uses. Exits non-zero if coverage drops.
+cov-check = [
+    "llvm-cov", "--workspace", "--ignore-filename-regex", "main\\.rs",
+    "--fail-under-lines", "70",
+    "--fail-under-functions", "70",
+    "--fail-under-regions", "70",
+    "--summary-only",
+]
+
+# Generate a browsable HTML report under target/llvm-cov/html/.
+cov-html = ["llvm-cov", "--workspace", "--ignore-filename-regex", "main\\.rs", "--html"]

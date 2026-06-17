@@ -118,3 +118,29 @@ pub fn parse_config() -> Result<AppConfig, AppError> {
         interval_str: args.interval,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_interval_accepts_all_valid_values() {
+        assert_eq!(parse_interval("30m").unwrap(), Duration::from_secs(30 * 60));
+        assert_eq!(parse_interval("1h").unwrap(), Duration::from_secs(60 * 60));
+        assert_eq!(parse_interval("3h").unwrap(), Duration::from_secs(3 * 60 * 60));
+        assert_eq!(parse_interval("24h").unwrap(), Duration::from_secs(24 * 60 * 60));
+    }
+
+    #[test]
+    fn parse_interval_rejects_invalid_value() {
+        let err = parse_interval("5m").unwrap_err();
+        assert!(matches!(err, AppError::Config(_)));
+        assert!(err.to_string().contains("invalid check interval"));
+        assert!(err.to_string().contains("5m"));
+    }
+
+    #[test]
+    fn parse_interval_rejects_empty() {
+        assert!(matches!(parse_interval("").unwrap_err(), AppError::Config(_)));
+    }
+}

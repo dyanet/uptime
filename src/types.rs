@@ -46,3 +46,38 @@ pub struct CheckResult {
     pub error: Option<String>,
     pub redirected: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_formats_each_variant() {
+        assert!(
+            AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, "boom"))
+                .to_string()
+                .contains("IO error")
+        );
+        assert_eq!(AppError::Config("x".into()).to_string(), "Config error: x");
+        assert_eq!(AppError::Dns("x".into()).to_string(), "DNS error: x");
+        assert_eq!(AppError::Ssl("x".into()).to_string(), "SSL error: x");
+        assert_eq!(AppError::Http("x".into()).to_string(), "HTTP error: x");
+        assert_eq!(AppError::Ses("x".into()).to_string(), "SES error: x");
+        assert_eq!(AppError::Baseline("x".into()).to_string(), "Baseline error: x");
+    }
+
+    #[test]
+    fn from_io_error_maps_to_io_variant() {
+        let e: AppError = std::io::Error::new(std::io::ErrorKind::NotFound, "missing").into();
+        assert!(matches!(e, AppError::Io(_)));
+        assert!(e.to_string().contains("IO error"));
+    }
+
+    #[test]
+    fn error_is_std_error() {
+        // Exercise the std::error::Error impl via trait object.
+        let e = AppError::Config("nope".into());
+        let dyn_err: &dyn std::error::Error = &e;
+        assert!(dyn_err.to_string().contains("nope"));
+    }
+}
