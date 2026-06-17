@@ -170,6 +170,9 @@ async fn main() {
                 }
 
                 if let (Some(days), Some(expiry_date)) = (result.days_remaining, &result.expiry_date) {
+                    if let Some(ref via) = result.checked_host {
+                        info!("{d}: SSL host resolved via redirect → {via}");
+                    }
                     info!("{d}: SSL certificate expires in {days} days ({expiry_date})");
 
                     let last = ssl_alert_state.get(d).copied();
