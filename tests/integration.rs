@@ -68,38 +68,6 @@ fn ssl_expiry_check_bad_domain() {
     println!("Bad domain error: {}", result.error.unwrap());
 }
 
-#[test]
-fn ssl_expiry_follows_port80_redirect() {
-    // dhanvalley.com listens only on port 80 and 302-redirects to
-    // https://www.dhanvalley.com. The direct :443 check times out, so this
-    // exercises the redirect fallback: it should resolve to www.dhanvalley.com
-    // and read a valid cert from there.
-    let result = uptime::ssl_expiry::check_ssl_expiry("dhanvalley.com");
-
-    if let Some(err) = &result.error {
-        // Network/site conditions can vary in CI; don't hard-fail the suite,
-        // but make the reason visible.
-        eprintln!("Skipping: redirect fallback did not resolve dhanvalley.com — {err}");
-        return;
-    }
-
-    assert!(
-        result.days_remaining.is_some(),
-        "expected an expiry once the redirect was followed"
-    );
-    assert_eq!(
-        result.checked_host.as_deref(),
-        Some("www.dhanvalley.com"),
-        "cert should have been read from the redirect target host"
-    );
-    println!(
-        "dhanvalley.com → {} expires in {} days ({})",
-        result.checked_host.as_deref().unwrap_or("?"),
-        result.days_remaining.unwrap(),
-        result.expiry_date.as_deref().unwrap_or("?"),
-    );
-}
-
 // ── 3. SSL alert threshold logic end-to-end ──────────────────────────────────
 
 #[test]

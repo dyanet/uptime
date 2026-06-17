@@ -20,8 +20,8 @@ pub struct SslExpiryResult {
     pub error: Option<String>,
     /// The host whose certificate was actually inspected. This differs from
     /// `domain` when the apex only listens on port 80 and redirects to an
-    /// HTTPS host (e.g. `dhanvalley.com` → `www.dhanvalley.com`). `None` when
-    /// the cert came directly from `domain` itself.
+    /// HTTPS host on a different name (e.g. an apex that redirects to its
+    /// `www` host). `None` when the cert came directly from `domain` itself.
     pub checked_host: Option<String>,
 }
 
@@ -66,9 +66,9 @@ pub fn should_alert(days_remaining: i64, last_alerted: Option<i64>) -> Option<i6
 ///    immediately — this is the common path and behaves exactly as before, so
 ///    regular SSL sites are never affected.
 /// 2. If the direct check fails (e.g. the apex only listens on port 80 to issue
-///    a redirect, like `dhanvalley.com`), fall back to following HTTP redirects
-///    on port 80 until the first `https://` target is found, then verify the
-///    certificate of that resolved host.
+///    a redirect to an HTTPS host on a different name), fall back to following
+///    HTTP redirects on port 80 until the first `https://` target is found,
+///    then verify the certificate of that resolved host.
 /// 3. If the fallback finds no HTTPS target, return the original direct error so
 ///    genuine SSL failures still surface unchanged.
 pub fn check_ssl_expiry(domain: &str) -> SslExpiryResult {
@@ -229,8 +229,15 @@ enum Hop {
 /// host of the first `https://` URL encountered, or `None` if no HTTPS target is
 /// found within `max_hops`.
 fn resolve_https_host_via_redirects(domain: &str, max_hops: u8) -> Option<String> {
-    let mut host = domain.to_string();
-    let mut port: u16 = 80;
+    resolve_https_host_starting_at(domain, 80, max_hops)
+}
+
+/// Core redirect-following loop, parameterized by the starting port so it can be
+/// exercised against a local mock server in tests. Production always starts on
+/// port 80 via [`resolve_https_host_via_redirects`].
+fn resolve_https_host_starting_at(start_host: &str, start_port: u16, max_hops: u8) -> Option<String> {
+    let mut host = start_host.to_string();
+    let mut port: u16 = start_port;
     let mut path = "/".to_string();
 
     for _ in 0..max_hops {
@@ -583,12 +590,12 @@ mod tests {
     #[test]
     fn classify_https_target_returns_host() {
         assert_eq!(
-            classify_location("https://www.dhanvalley.com", "dhanvalley.com"),
-            Hop::Https("www.dhanvalley.com".to_string())
+            classify_location("https://www.example.com", "example.com"),
+            Hop::Https("www.example.com".to_string())
         );
         assert_eq!(
-            classify_location("https://www.dhanvalley.com/", "dhanvalley.com"),
-            Hop::Https("www.dhanvalley.com".to_string())
+            classify_location("https://www.example.com/", "example.com"),
+            Hop::Https("www.example.com".to_string())
         );
     }
 
@@ -643,5 +650,50 @@ mod tests {
         let buf = b"HTTP/1.1 302 Found\r\nLocation: https://x\r\n\r\nbody";
         let end = find_header_end(buf).unwrap();
         assert_eq!(&buf[..end], b"HTTP/1.1 302 Found\r\nLocation: https://x\r\n\r\n");
+    }
+
+    /// Spawn a one-shot local HTTP server that replies with `response` to the
+    /// first connection. Returns the bound port. Mirrors the shape of an apex
+    /// that only listens on port 80, without depending on any external domain.
+    fn spawn_one_shot_http(response: &'static str) -> u16 {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut sock, _)) = listener.accept() {
+                // Drain the request headers so the client's write completes.
+                let mut buf = [0u8; 1024];
+                let _ = sock.read(&mut buf);
+                let _ = sock.write_all(response.as_bytes());
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn resolve_follows_port80_redirect_to_https_host() {
+        let port = spawn_one_shot_http(
+            "HTTP/1.1 302 Found\r\n\
+             Location: https://moved.example/\r\n\
+             Content-Length: 0\r\n\
+             Connection: close\r\n\r\n",
+        );
+
+        let resolved = resolve_https_host_starting_at("127.0.0.1", port, MAX_REDIRECT_HOPS);
+        assert_eq!(resolved.as_deref(), Some("moved.example"));
+    }
+
+    #[test]
+    fn resolve_returns_none_when_no_redirect() {
+        let port = spawn_one_shot_http(
+            "HTTP/1.1 200 OK\r\n\
+             Content-Length: 0\r\n\
+             Connection: close\r\n\r\n",
+        );
+
+        let resolved = resolve_https_host_starting_at("127.0.0.1", port, MAX_REDIRECT_HOPS);
+        assert_eq!(resolved, None);
     }
 }
