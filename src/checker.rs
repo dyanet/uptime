@@ -65,7 +65,7 @@ pub async fn check_domain(domain: &str, timeout: Duration) -> CheckResult {
     };
 
     let url = format!("https://{domain}/");
-    let response = match client.get(&url).send().await {
+    let response = match send_with_http_fallback(&client, domain, &url).await {
         Ok(resp) => resp,
         Err(e) => {
             if e.is_timeout() {
@@ -138,6 +138,44 @@ pub async fn check_domain(domain: &str, timeout: Duration) -> CheckResult {
     }
 
     result
+}
+
+/// Send a GET to the HTTPS URL, falling back to HTTP on a plain connectivity failure.
+///
+/// Some apex domains only listen on port 80 to issue a redirect to an HTTPS host
+/// on a different name; connecting to `:443` on the apex then times out or is
+/// refused. In that case we retry over `http://<domain>/` and let reqwest follow
+/// the redirect chain (including the upgrade back to HTTPS), so the site is
+/// correctly reported as up.
+///
+/// The fallback is deliberately NOT attempted for TLS/certificate errors — those
+/// are genuine problems that must be surfaced. If the fallback also fails, the
+/// original HTTPS error is returned so downstream error classification is
+/// unchanged. Sites whose `:443` responds normally never hit the fallback.
+async fn send_with_http_fallback(
+    client: &Client,
+    domain: &str,
+    https_url: &str,
+) -> Result<reqwest::Response, reqwest::Error> {
+    match client.get(https_url).send().await {
+        Ok(resp) => Ok(resp),
+        Err(e) => {
+            let full = format!("{e}");
+            let looks_ssl = full.contains("certificate")
+                || full.contains("SSL")
+                || full.contains("tls")
+                || full.contains("TLS");
+            if !looks_ssl && (e.is_timeout() || e.is_connect()) {
+                let http_url = format!("http://{domain}/");
+                if let Ok(resp) = client.get(&http_url).send().await {
+                    info!("{domain}: HTTPS unreachable, recovered via HTTP→redirect fallback");
+                    return Ok(resp);
+                }
+            }
+            // Fallback not applicable or also failed — preserve the original error.
+            Err(e)
+        }
+    }
 }
 
 /// Compute the hex-encoded SHA-256 hash of a byte slice.
