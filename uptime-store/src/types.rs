@@ -97,6 +97,9 @@ pub struct UptimeEntry {
     pub error: Option<String>,
     #[serde(default)]
     pub redirected: bool,
+    /// Special handling flag: 0 = normal, 1 = content change (portal will classify).
+    #[serde(default)]
+    pub special_handling: i8,
 }
 
 // ── Baseline ─────────────────────────────────────────────────────────────────
@@ -127,9 +130,10 @@ mod tests {
             prop::option::of(0u64..1_000_000u64),                        // response_size
             prop::option::of("[a-z ]{0,30}"),                             // error
             any::<bool>(),                                                // redirected
+            (0i8..=1i8),                                                  // special_handling
         )
             .prop_map(
-                |(timestamp, domain, up, dns_ok, http_status, ssl_error, response_size, error, redirected)| {
+                |(timestamp, domain, up, dns_ok, http_status, ssl_error, response_size, error, redirected, special_handling)| {
                     UptimeEntry {
                         timestamp,
                         domain,
@@ -140,6 +144,7 @@ mod tests {
                         response_size,
                         error,
                         redirected,
+                        special_handling,
                     }
                 },
             )
@@ -175,6 +180,21 @@ mod tests {
             value.as_object_mut().expect("JSON object").remove("redirected");
             let deserialized: UptimeEntry = serde_json::from_value(value).expect("deserialize legacy entry");
             prop_assert_eq!(deserialized.redirected, false);
+        }
+
+        /// **Property 3: Legacy entries without special_handling field default to 0**
+        ///
+        /// For any valid `UptimeEntry`, serializing to JSON, removing the
+        /// `special_handling` key (simulating a legacy entry), and deserializing back
+        /// produces an entry with `special_handling == 0`.
+        ///
+        /// **Validates: Backward compatibility**
+        #[test]
+        fn legacy_entries_without_special_handling_default_to_zero(entry in arb_uptime_entry()) {
+            let mut value = serde_json::to_value(&entry).expect("serialize to Value");
+            value.as_object_mut().expect("JSON object").remove("special_handling");
+            let deserialized: UptimeEntry = serde_json::from_value(value).expect("deserialize legacy entry");
+            prop_assert_eq!(deserialized.special_handling, 0);
         }
     }
 }

@@ -281,6 +281,7 @@ mod tests {
             body_size: Some(100),
             error: None,
             redirected: false,
+            special_handling: 0,
         }
     }
 

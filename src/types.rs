@@ -45,6 +45,8 @@ pub struct CheckResult {
     pub body_size: Option<u64>,
     pub error: Option<String>,
     pub redirected: bool,
+    /// Special handling flag: 0 = normal, 1 = content hash changed (portal will classify).
+    pub special_handling: i8,
 }
 
 #[cfg(test)]
@@ -79,5 +81,21 @@ mod tests {
         let e = AppError::Config("nope".into());
         let dyn_err: &dyn std::error::Error = &e;
         assert!(dyn_err.to_string().contains("nope"));
+    }
+
+    #[test]
+    fn check_result_default_special_handling() {
+        let result = CheckResult {
+            domain: "example.com".to_string(),
+            dns_ok: true,
+            ssl_error: None,
+            http_status: Some(200),
+            body_hash: None,
+            body_size: None,
+            error: None,
+            redirected: false,
+            special_handling: 0,
+        };
+        assert_eq!(result.special_handling, 0);
     }
 }

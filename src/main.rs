@@ -206,7 +206,7 @@ async fn main() {
                 let d = &entry.domain;
                 let recipient_override = entry.recipient.as_deref();
 
-                let result = checker::check_domain(d, timeout).await;
+                let mut result = checker::check_domain(d, timeout).await;
 
                 // Write JSONL log entry.
                 let log_entry = uptime_log::LogEntry::from_check(&result);
@@ -244,15 +244,11 @@ async fn main() {
                 }
 
                 // Baseline comparison.
-                match baseline::compare_and_update(&result, &mut baselines) {
+                match baseline::compare_and_update(&mut result, &mut baselines) {
                     BaselineAction::NewBaseline => info!("{d}: new baseline stored"),
                     BaselineAction::Unchanged => info!("{d}: content unchanged"),
                     BaselineAction::ContentChanged { old_size, new_size } => {
-                        warn!("{d}: content changed (old={old_size}, new={new_size})");
-                        let _ = alerter::send_warning_email(
-                            &alert_config, recipient_override, d,
-                            "Home page content changed", old_size, new_size,
-                        ).await;
+                        warn!("{d}: content changed (old={old_size}, new={new_size}) — special handling flagged for portal processing");
                     }
                     BaselineAction::Skipped => {}
                 }
