@@ -20,6 +20,8 @@ pub struct LogEntry {
     pub response_size: Option<u64>,
     pub error: Option<String>,
     pub redirected: bool,
+    /// Special handling flag: 0 = normal, 1 = content change (portal classifies).
+    pub special_handling: i8,
 }
 
 impl LogEntry {
@@ -39,6 +41,7 @@ impl LogEntry {
             response_size: result.body_size,
             error: result.error.clone(),
             redirected: result.redirected,
+            special_handling: result.special_handling,
         }
     }
 
@@ -54,6 +57,7 @@ impl LogEntry {
             response_size: self.response_size,
             error: self.error.clone(),
             redirected: self.redirected,
+            special_handling: self.special_handling,
         }
     }
 }
@@ -85,6 +89,7 @@ mod tests {
             body_size: Some(1234),
             error: None,
             redirected: false,
+            special_handling: 0,
         }
     }
 
@@ -156,6 +161,7 @@ mod tests {
         assert_eq!(ue.http_status, e.http_status);
         assert_eq!(ue.response_size, e.response_size);
         assert_eq!(ue.redirected, e.redirected);
+        assert_eq!(ue.special_handling, e.special_handling);
         assert_eq!(ue.timestamp, e.timestamp);
     }
 

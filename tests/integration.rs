@@ -203,6 +203,7 @@ fn file_store_full_round_trip() {
         response_size: Some(1024),
         error: None,
         redirected: false,
+        special_handling: 0,
     };
     store.append_uptime(&entry).unwrap();
     let entries = store.read_uptime("example.com", 30).unwrap();
@@ -267,7 +268,7 @@ fn baseline_full_lifecycle() {
     assert!(baselines.is_empty());
 
     // First check → NewBaseline.
-    let r1 = CheckResult {
+    let mut r1 = CheckResult {
         domain: "test.com".to_string(),
         dns_ok: true,
         ssl_error: None,
@@ -276,14 +277,15 @@ fn baseline_full_lifecycle() {
         body_size: Some(1000),
         error: None,
         redirected: false,
+        special_handling: 0,
     };
-    assert_eq!(compare_and_update(&r1, &mut baselines), BaselineAction::NewBaseline);
+    assert_eq!(compare_and_update(&mut r1, &mut baselines), BaselineAction::NewBaseline);
 
     // Same hash → Unchanged.
-    assert_eq!(compare_and_update(&r1, &mut baselines), BaselineAction::Unchanged);
+    assert_eq!(compare_and_update(&mut r1, &mut baselines), BaselineAction::Unchanged);
 
     // Different hash → ContentChanged.
-    let r2 = CheckResult {
+    let mut r2 = CheckResult {
         body_hash: Some("hash2".to_string()),
         body_size: Some(2000),
         ..CheckResult {
@@ -295,9 +297,10 @@ fn baseline_full_lifecycle() {
             body_size: None,
             error: None,
             redirected: false,
+            special_handling: 0,
         }
     };
-    match compare_and_update(&r2, &mut baselines) {
+    match compare_and_update(&mut r2, &mut baselines) {
         BaselineAction::ContentChanged { old_size, new_size } => {
             assert_eq!(old_size, 1000);
             assert_eq!(new_size, 2000);
@@ -306,7 +309,7 @@ fn baseline_full_lifecycle() {
     }
 
     // Non-2xx → Skipped.
-    let r3 = CheckResult {
+    let mut r3 = CheckResult {
         domain: "test.com".to_string(),
         dns_ok: true,
         ssl_error: None,
@@ -315,8 +318,9 @@ fn baseline_full_lifecycle() {
         body_size: Some(500),
         error: None,
         redirected: false,
+        special_handling: 0,
     };
-    assert_eq!(compare_and_update(&r3, &mut baselines), BaselineAction::Skipped);
+    assert_eq!(compare_and_update(&mut r3, &mut baselines), BaselineAction::Skipped);
 
     // Save and reload.
     save_baselines(&path, &baselines).unwrap();

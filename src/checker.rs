@@ -22,6 +22,7 @@ pub async fn check_domain(domain: &str, timeout: Duration) -> CheckResult {
         body_size: None,
         error: None,
         redirected: false,
+        special_handling: 0,
     };
 
     // --- DNS resolution ---

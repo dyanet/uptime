@@ -32,7 +32,8 @@ pub fn save_baselines(path: &Path, baselines: &BaselineMap) -> Result<(), AppErr
 }
 
 /// Compare a `CheckResult` against the baseline map and return the action taken.
-pub fn compare_and_update(result: &CheckResult, baselines: &mut BaselineMap) -> BaselineAction {
+/// On content change, sets `result.special_handling = 1` so the portal can classify it.
+pub fn compare_and_update(result: &mut CheckResult, baselines: &mut BaselineMap) -> BaselineAction {
     let (hash, size) = match (&result.body_hash, result.body_size) {
         (Some(h), Some(s)) => (h.clone(), s),
         _ => return BaselineAction::Skipped,
@@ -57,6 +58,8 @@ pub fn compare_and_update(result: &CheckResult, baselines: &mut BaselineMap) -> 
         Some(existing) => {
             let old_size = existing.size;
             baselines.insert(result.domain.clone(), new_baseline);
+            // Signal special handling: portal will re-fetch, classify with AI, and send emails.
+            result.special_handling = 1;
             BaselineAction::ContentChanged {
                 old_size,
                 new_size: size,
@@ -81,6 +84,7 @@ mod tests {
             body_size: Some(size),
             error: None,
             redirected: false,
+            special_handling: 0,
         }
     }
 
@@ -123,8 +127,8 @@ mod tests {
     #[test]
     fn compare_new_domain_stores_baseline() {
         let mut baselines = BaselineMap::new();
-        let result = make_check_result("new.com", 200, "hash1", 100);
-        let action = compare_and_update(&result, &mut baselines);
+        let mut result = make_check_result("new.com", 200, "hash1", 100);
+        let action = compare_and_update(&mut result, &mut baselines);
         assert_eq!(action, BaselineAction::NewBaseline);
         assert_eq!(baselines.get("new.com").unwrap().hash, "hash1");
     }
@@ -133,8 +137,8 @@ mod tests {
     fn compare_unchanged_hash_no_action() {
         let mut baselines = BaselineMap::new();
         baselines.insert("same.com".to_string(), Baseline { hash: "hash1".to_string(), size: 100 });
-        let result = make_check_result("same.com", 200, "hash1", 100);
-        let action = compare_and_update(&result, &mut baselines);
+        let mut result = make_check_result("same.com", 200, "hash1", 100);
+        let action = compare_and_update(&mut result, &mut baselines);
         assert_eq!(action, BaselineAction::Unchanged);
     }
 
@@ -142,16 +146,17 @@ mod tests {
     fn compare_changed_hash_flags_content_change() {
         let mut baselines = BaselineMap::new();
         baselines.insert("changed.com".to_string(), Baseline { hash: "old_hash".to_string(), size: 100 });
-        let result = make_check_result("changed.com", 200, "new_hash", 200);
-        let action = compare_and_update(&result, &mut baselines);
+        let mut result = make_check_result("changed.com", 200, "new_hash", 200);
+        let action = compare_and_update(&mut result, &mut baselines);
         assert_eq!(action, BaselineAction::ContentChanged { old_size: 100, new_size: 200 });
+        assert_eq!(result.special_handling, 1, "special_handling should be set to 1 on content change");
     }
 
     #[test]
     fn compare_non_2xx_skipped() {
         let mut baselines = BaselineMap::new();
-        let result = make_check_result("error.com", 500, "hash1", 100);
-        let action = compare_and_update(&result, &mut baselines);
+        let mut result = make_check_result("error.com", 500, "hash1", 100);
+        let action = compare_and_update(&mut result, &mut baselines);
         assert_eq!(action, BaselineAction::Skipped);
     }
 }

@@ -1,6 +1,7 @@
 # Uptime Monitor
 
 [![CI](https://github.com/dyanet/uptime/actions/workflows/ci.yml/badge.svg)](https://github.com/dyanet/uptime/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/dyanet/uptime/branch/main/graph/badge.svg)](https://codecov.io/gh/dyanet/uptime)
 
 A single-binary domain monitor that checks DNS, SSL, HTTP, and content changes on a schedule, sends alert emails via SMTP, and writes a structured uptime log.
 
