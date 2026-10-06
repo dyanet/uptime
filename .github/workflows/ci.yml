@@ -31,6 +31,27 @@ jobs:
       - name: Test
         run: cargo test
 
+  # End-to-end: run the documented Quick Start in Docker against local
+  # stand-ins (Mailpit, nginx) and check logs, alerts and change detection.
+  harness:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Docker harness
+        run: bash harness/run.sh
+
+      - name: Upload harness logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-logs
+          path: |
+            harness/data/*.jsonl
+            harness/data/compose.log
+          if-no-files-found: ignore
+
   coverage:
     runs-on: ubuntu-latest
     steps:

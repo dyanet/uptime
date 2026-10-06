@@ -1,0 +1,14 @@
+# Monitor configuration for the local harness (no secrets; Mailpit accepts any
+# credentials). Same layout as example.env; sourced by the image entrypoint.
+UPTIME_DOMAINS=/data/domains.csv
+UPTIME_INTERVAL=30m
+UPTIME_BASELINE=/data/baselines.json
+UPTIME_LOG_FILE=/data/uptime.jsonl
+UPTIME_ERROR_LOG=/data/errors.jsonl
+UPTIME_SENDER=monitor@harness.test
+UPTIME_RECIPIENT=ops@harness.test
+UPTIME_SMTP_HOST=mailpit
+UPTIME_SMTP_PORT=1025
+UPTIME_SMTP_USER=harness
+UPTIME_SMTP_PASS=harness
+UPTIME_SMTP_TLS=false

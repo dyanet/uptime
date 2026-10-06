@@ -70,7 +70,7 @@ pub fn append_entry(path: &Path, entry: &LogEntry) -> std::io::Result<()> {
     let store = FileStore::new("", path, "", "");
     let ue = entry.to_entry();
     store.append_uptime(&ue).map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        std::io::Error::other(e.to_string())
     })
 }
 

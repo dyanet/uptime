@@ -1,0 +1,7 @@
+# domain,recipient,interval,status,date,stripe,key,created_at
+# *.127.0.0.1.nip.io resolve to 127.0.0.1, which is the nginx container
+# (the monitor shares its network namespace). nxdomain.invalid never resolves.
+up.127.0.0.1.nip.io,watcher@harness.test,30m
+down.127.0.0.1.nip.io,watcher@harness.test,30m
+changed.127.0.0.1.nip.io,watcher@harness.test,30m
+nxdomain.invalid,alerts@harness.test,30m

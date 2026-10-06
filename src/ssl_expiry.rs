@@ -47,8 +47,7 @@ pub fn should_alert(days_remaining: i64, last_alerted: Option<i64>) -> Option<i6
     let current_threshold = ALERT_THRESHOLDS
         .iter()
         .copied()
-        .filter(|&t| days_remaining <= t)
-        .last();
+        .rfind(|&t| days_remaining <= t);
 
     let threshold = current_threshold?;
 
@@ -188,7 +187,7 @@ fn check_ssl_expiry_host(host: &str, display_domain: Option<String>) -> SslExpir
             let not_after = cert.validity().not_after.to_datetime();
             let expiry = NaiveDateTime::new(
                 NaiveDate::from_ymd_opt(
-                    not_after.year() as i32,
+                    not_after.year(),
                     not_after.month() as u32,
                     not_after.day() as u32,
                 )
