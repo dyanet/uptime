@@ -8,10 +8,9 @@
 //!
 //! Network: the checker resolves names with hickory's `ResolverConfig::default()`,
 //! i.e. Google Public DNS (8.8.8.8 / 8.8.4.4) regardless of the host resolver,
-//! so these tests need outbound DNS to Google. CI runners have it, which is why
-//! the tests are deliberately not gated behind an environment variable. (If
-//! Google DNS is blocked the lookup times out instead of returning NXDOMAIN; the
-//! monitor still reports a DNS failure, just more slowly.)
+//! so the DNS test needs outbound DNS to Google. CI runners have it. On a
+//! network that blocks 8.8.8.8 the lookup retries for longer than the test's
+//! budget and the test fails; set `UPTIME_TEST_OFFLINE=1` to skip it there.
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -549,6 +548,10 @@ fn tmp_leftovers(dir: &Path) -> Vec<PathBuf> {
 /// files behind.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn monitors_logs_and_alerts_on_dns_failure() {
+    if std::env::var_os("UPTIME_TEST_OFFLINE").is_some() {
+        eprintln!("skipping: UPTIME_TEST_OFFLINE is set (needs outbound DNS to 8.8.8.8)");
+        return;
+    }
     let sink = SmtpSink::start().await;
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(

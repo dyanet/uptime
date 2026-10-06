@@ -29,7 +29,9 @@ local stand-ins:
    recipient (`watcher@harness.test`), "DNS Error — nxdomain.invalid" to
    `alerts@harness.test`.
 4. **Graceful shutdown**: `SIGINT` produces a "Monitoring stopped" e-mail and
-   the container exits; `data/baselines.json` is persisted.
+   the container exits; `data/baselines.json` is persisted. (Compose prints
+   `Killing`/`Killed` for the signal step; that is its wording for any signal.
+   The PASS line is the result.)
 5. **Content change across a restart**: the `changed.*` page is rewritten, the
    monitor is restarted, and its first cycle logs a new `changed.*` line with
    `special_handling=1` (compared against the persisted baseline).
@@ -47,10 +49,16 @@ MAILPIT_PORT=9025 ./harness/run.sh                          # if 8025 is already
 ```
 
 On Windows run it from Git Bash (`bash harness/run.sh`). Requirements: Docker
-with Compose v2 and `curl`; `jq` is optional (there is a `grep` fallback).
+with Compose v2 and `curl`; `jq` is optional (there is a `grep` fallback). If
+your checkout predates `.gitattributes` in this repository, run
+`git add --renormalize . && git checkout -- .` once so shell scripts and the
+harness files have LF endings (the image build also strips carriage returns
+from the entrypoint, so a CRLF checkout still produces a working image).
 
-A run takes about two minutes once the image exists; the first build of the
-monitor image from source adds a few minutes. The script prints progress while
+A run takes a minute or two once the image exists (most of it is waiting for
+e-mails and the restart); the first build of the monitor image from source
+compiles the Rust dependencies and adds a few minutes. Output from earlier runs
+in `harness/data/` is removed at the start of each run. The script prints progress while
 waiting, tears everything down (`docker compose down -v`) on exit, and on
 failure prints the monitor logs and the Mailpit message list and saves the full
 compose logs to `harness/data/compose.log`. In CI (`.github/workflows/ci.yml`,

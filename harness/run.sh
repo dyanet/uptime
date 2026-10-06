@@ -9,6 +9,7 @@
 #
 # Usage:
 #   ./harness/run.sh                                            # build the repo Dockerfile
+#   bash harness/run.sh                                         # same, e.g. from Git Bash on Windows
 #   UPTIME_IMAGE=ghcr.io/dyanet/uptime:latest ./harness/run.sh  # test a published image
 #   HARNESS_KEEP=1 ./harness/run.sh                             # leave containers running
 #   MAILPIT_PORT=9025 ./harness/run.sh                          # if 8025 is taken
@@ -182,6 +183,7 @@ mail_list() {
 
 have_mail()    { [ "$(mail_count "$1")" -ge 1 ]; }
 two_startups() { [ "$(mail_count "$Q_STARTED")" -ge 2 ]; }
+second_dns()   { [ "$(mail_count "$Q_DNS")" -ge 2 ]; }
 
 # assert_mail <description> <query> <expected-minimum>
 assert_mail() {
@@ -284,7 +286,8 @@ if wait_until 30 "'Monitoring stopped' e-mail" have_mail "$Q_STOPPED"; then
 else
   fail "no 'Monitoring stopped' e-mail after SIGINT"
 fi
-wait_until 30 "monitor container to exit" monitor_exited || fail "monitor did not exit after SIGINT"
+wait_until 30 "monitor container to exit" monitor_exited \
+  || { fail "monitor did not exit after SIGINT"; compose stop -t 30 monitor >/dev/null 2>&1 || true; }
 if [ -f "$DATA_DIR/baselines.json" ]; then
   pass "baselines.json persisted in data/ across the restart"
 else
@@ -306,7 +309,8 @@ if wait_until 30 "second 'Monitoring started' e-mail" two_startups; then
 else
   fail "no second 'Monitoring started' e-mail after restart"
 fi
-sleep 5  # let the restarted monitor finish e-mailing its first cycle
+# nxdomain.invalid is checked last, so its second alert marks the end of the restarted cycle's e-mails.
+wait_until 60 "the restarted cycle's DNS alert" second_dns || fail "no second DNS alert after restart"
 
 N_CONTENT=$(mail_count "$Q_CONTENT")
 if [ "$N_CONTENT" = 0 ]; then

@@ -16,6 +16,13 @@ services:
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "1"
       MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    # The monitor e-mails within milliseconds of starting; wait for Mailpit's
+    # SMTP listener rather than just the container start.
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
     ports:
       # Web UI and API for debugging: http://127.0.0.1:8025 (loopback only).
       - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
@@ -43,5 +50,7 @@ services:
     # which is the only resolver the monitor's checker uses.
     network_mode: "service:target"
     depends_on:
-      - mailpit
-      - target
+      mailpit:
+        condition: service_healthy
+      target:
+        condition: service_started
