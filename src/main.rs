@@ -93,7 +93,7 @@ async fn main() {
          — Uptime Monitor\n",
         entries.len(),
         domain_names.join(", "),
-        &cfg.interval_str,
+        cfg.interval_str,
         Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
     );
     let _ = alerter::send_info_email(&alert_config, "[Uptime Monitor] Monitoring started", &startup_body).await;
@@ -208,12 +208,6 @@ async fn main() {
 
                 let mut result = checker::check_domain(d, timeout).await;
 
-                // Write JSONL log entry.
-                let log_entry = uptime_log::LogEntry::from_check(&result);
-                if let Err(e) = uptime_log::append_entry(&cfg.log_file, &log_entry) {
-                    error!("Failed to write uptime log: {e}");
-                }
-
                 // Log health check outcome.
                 if !result.dns_ok {
                     info!("{d}: DNS check FAILED");
@@ -251,6 +245,14 @@ async fn main() {
                         warn!("{d}: content changed (old={old_size}, new={new_size}) — special handling flagged for portal processing");
                     }
                     BaselineAction::Skipped => {}
+                }
+
+                // Write the JSONL log entry last so it carries the special_handling
+                // flag set by the baseline comparison: the portal classifies content
+                // changes from this flag, so writing it earlier always logged 0.
+                let log_entry = uptime_log::LogEntry::from_check(&result);
+                if let Err(e) = uptime_log::append_entry(&cfg.log_file, &log_entry) {
+                    error!("Failed to write uptime log: {e}");
                 }
             }
         }
