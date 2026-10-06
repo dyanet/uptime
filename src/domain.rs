@@ -56,10 +56,10 @@ fn parse_domain_line(line: &str) -> Option<DomainEntry> {
     }
 
     // If a 4th column (status) exists and equals "Disabled" or "Lapsed", skip this domain.
-    if let Some(status) = parts.get(3) {
-        if *status == "Disabled" || *status == "Lapsed" {
-            return None;
-        }
+    if let Some(status) = parts.get(3)
+        && (*status == "Disabled" || *status == "Lapsed")
+    {
+        return None;
     }
 
     let recipient = parts.get(1)

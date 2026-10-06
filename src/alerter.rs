@@ -61,6 +61,8 @@ pub fn format_error_email_body(domain: &str, error_type: &str, detail: &str) -> 
 }
 
 /// Format the body of a warning (content-change) email.
+// Library API (portal); the monitor binary no longer e-mails on content change.
+#[allow(dead_code)]
 pub fn format_warning_email_body(
     domain: &str,
     description: &str,
@@ -140,6 +142,8 @@ pub async fn send_error_email(
 /// Send a warning (content-change) email via SMTP.
 ///
 /// Per Requirement 6.5, send failures are logged but **not** propagated.
+// Library API (portal); the monitor binary no longer e-mails on content change.
+#[allow(dead_code)]
 pub async fn send_warning_email(
     config: &AlertConfig,
     recipient_override: Option<&str>,
@@ -247,13 +251,13 @@ pub fn decide_alert(result: &CheckResult) -> AlertDecision {
     }
 
     // HTTP 4xx/5xx
-    if let Some(status) = result.http_status {
-        if is_http_error(status) {
-            return AlertDecision::ErrorEmail {
-                error_type: "HTTP Error".to_string(),
-                detail: format!("HTTP status {status}"),
-            };
-        }
+    if let Some(status) = result.http_status
+        && is_http_error(status)
+    {
+        return AlertDecision::ErrorEmail {
+            error_type: "HTTP Error".to_string(),
+            detail: format!("HTTP status {status}"),
+        };
     }
 
     // Timeout / connection refused / other request-level error

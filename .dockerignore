@@ -7,3 +7,4 @@ uptime-store/target
 docker-compose.yml
 Caddyfile
 data
+harness

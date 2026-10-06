@@ -10,6 +10,8 @@ mod types;
 mod uptime_log;
 
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -93,7 +95,7 @@ async fn main() {
          — Uptime Monitor\n",
         entries.len(),
         domain_names.join(", "),
-        &cfg.interval_str,
+        cfg.interval_str,
         Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
     );
     let _ = alerter::send_info_email(&alert_config, "[Uptime Monitor] Monitoring started", &startup_body).await;
@@ -121,6 +123,21 @@ async fn main() {
     let now = std::time::Instant::now();
     for interval in interval_groups.keys() {
         last_check.insert(*interval, now - *interval);
+    }
+
+    // One long-lived SIGINT listener. Installing it once, before the first
+    // cycle, means a signal that arrives while checks are running is remembered
+    // and acted on at the next safe point instead of being dropped, and that
+    // SIGINT is handled even as PID 1 in a container (where the default is to
+    // ignore it).
+    let shutdown = Arc::new(AtomicBool::new(false));
+    {
+        let flag = shutdown.clone();
+        tokio::spawn(async move {
+            if signal::ctrl_c().await.is_ok() {
+                flag.store(true, Ordering::SeqCst);
+            }
+        });
     }
 
     // Monitoring loop with graceful shutdown.
@@ -208,12 +225,6 @@ async fn main() {
 
                 let mut result = checker::check_domain(d, timeout).await;
 
-                // Write JSONL log entry.
-                let log_entry = uptime_log::LogEntry::from_check(&result);
-                if let Err(e) = uptime_log::append_entry(&cfg.log_file, &log_entry) {
-                    error!("Failed to write uptime log: {e}");
-                }
-
                 // Log health check outcome.
                 if !result.dns_ok {
                     info!("{d}: DNS check FAILED");
@@ -252,6 +263,21 @@ async fn main() {
                     }
                     BaselineAction::Skipped => {}
                 }
+
+                // Write the JSONL log entry last so it carries the special_handling
+                // flag set by the baseline comparison: the portal classifies content
+                // changes from this flag, so writing it earlier always logged 0.
+                let log_entry = uptime_log::LogEntry::from_check(&result);
+                if let Err(e) = uptime_log::append_entry(&cfg.log_file, &log_entry) {
+                    error!("Failed to write uptime log: {e}");
+                }
+
+                if shutdown.load(Ordering::SeqCst) {
+                    if let Err(e) = baseline::save_baselines(&cfg.baseline_file, &baselines) {
+                        error!("Failed to save baselines: {e}");
+                    }
+                    graceful_shutdown(&alert_config).await;
+                }
             }
         }
 
@@ -260,32 +286,34 @@ async fn main() {
             error!("Failed to save baselines: {e}");
         }
 
-        // Sleep in 1-second ticks, checking for shutdown signal.
+        // Sleep in 1-second ticks, checking for the shutdown flag.
         let sleep_until = tick_start + Duration::from_secs(30);
         loop {
+            if shutdown.load(Ordering::SeqCst) {
+                graceful_shutdown(&alert_config).await;
+            }
             let remaining = sleep_until.saturating_duration_since(std::time::Instant::now());
             if remaining.is_zero() {
                 break;
             }
-            tokio::select! {
-                _ = tokio::time::sleep(remaining.min(Duration::from_secs(1))) => {}
-                _ = signal::ctrl_c() => {
-                    info!("Shutdown signal received");
-                    let shutdown_body = format!(
-                        "Uptime Monitor — Stopped\n\
-                         =========================\n\n\
-                         Timestamp: {}\n\n\
-                         Monitoring has stopped. Domains are no longer being checked.\n\
-                         Restart the monitor to resume health checks and alerts.\n\n\
-                         — Uptime Monitor\n",
-                        Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
-                    );
-                    let _ = alerter::send_info_email(
-                        &alert_config, "[Uptime Monitor] Monitoring stopped", &shutdown_body,
-                    ).await;
-                    std::process::exit(0);
-                }
-            }
+            tokio::time::sleep(remaining.min(Duration::from_secs(1))).await;
         }
     }
+}
+
+/// Send the shutdown notice and exit. Called once the SIGINT flag is seen at a
+/// safe point (between domain checks, or while sleeping between cycles).
+async fn graceful_shutdown(alert_config: &AlertConfig) -> ! {
+    info!("Shutdown signal received");
+    let shutdown_body = format!(
+        "Uptime Monitor — Stopped\n\
+         =========================\n\n\
+         Timestamp: {}\n\n\
+         Monitoring has stopped. Domains are no longer being checked.\n\
+         Restart the monitor to resume health checks and alerts.\n\n\
+         — Uptime Monitor\n",
+        Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
+    );
+    let _ = alerter::send_info_email(alert_config, "[Uptime Monitor] Monitoring stopped", &shutdown_body).await;
+    std::process::exit(0);
 }

@@ -1,0 +1,4 @@
+# Shell scripts and everything the Docker harness mounts into Linux containers
+# must keep LF line endings, even on Windows checkouts with core.autocrlf=true.
+*.sh      text eol=lf
+harness/** text eol=lf

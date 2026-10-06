@@ -1,0 +1,56 @@
+# Local end-to-end harness for the open-source monitor. Driven by run.sh;
+# see harness/README.md for what it proves and how to adapt it.
+#
+# It runs the documented Quick Start unchanged: a data/ directory containing
+# `env` and `domains.csv` is mounted at /data and the image's entrypoint
+# sources /data/env. The outside world is replaced by two local stand-ins:
+# Mailpit as the SMTP server and nginx as the monitored web sites.
+
+name: uptime-harness
+
+services:
+  # SMTP sink + HTTP API/UI. Accepts any credentials over plaintext so the
+  # monitor's AUTH PLAIN with UPTIME_SMTP_TLS=false succeeds.
+  mailpit:
+    image: axllent/mailpit:latest
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    # The monitor e-mails within milliseconds of starting; wait for Mailpit's
+    # SMTP listener rather than just the container start.
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    ports:
+      # Web UI and API for debugging: http://127.0.0.1:8025 (loopback only).
+      - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
+
+  # Stand-in for the monitored sites. Listens on :80 only. Nothing listens on
+  # :443, so the monitor's HTTPS attempt is refused and it falls back to HTTP,
+  # where nginx answers per server_name (200 / 503 / rewritable page).
+  target:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+
+  monitor:
+    # Set UPTIME_IMAGE=ghcr.io/dyanet/uptime:latest to test a published image;
+    # otherwise the repo's own Dockerfile is built (context = repo root).
+    image: ${UPTIME_IMAGE:-uptime-harness:local}
+    build:
+      context: ..
+    volumes:
+      - ./data:/data
+    # Share the network namespace of `target`, so that 127.0.0.1 inside the
+    # monitor IS the nginx container. The monitored names are public wildcard
+    # DNS names (*.127.0.0.1.nip.io) that resolve to 127.0.0.1 via Google DNS,
+    # which is the only resolver the monitor's checker uses.
+    network_mode: "service:target"
+    depends_on:
+      mailpit:
+        condition: service_healthy
+      target:
+        condition: service_started

@@ -28,10 +28,10 @@ EOF
 3. Run:
 
 ```bash
-docker run --rm -v ./data:/data ghcr.io/dyanet/uptime:latest
+docker run --rm -v "$PWD/data:/data" ghcr.io/dyanet/uptime:latest
 ```
 
-Config, domains, baselines, and uptime logs all live in `./data/`. The container reads `data/env` on startup automatically.
+Config, domains, baselines, and uptime logs all live in `./data/`. The container reads `data/env` on startup automatically. (On Windows use Git Bash, which converts `$PWD` for Docker; in PowerShell write `-v "${PWD}/data:/data"`.)
 
 ### Without Docker
 
@@ -49,6 +49,18 @@ cargo build --release
 ```
 
 Or set the `UPTIME_*` env vars and run `./target/release/uptime` with no flags.
+
+### Try it locally
+
+`harness/run.sh` runs the Quick Start end-to-end on your machine with Docker: Mailpit stands in for the SMTP server and nginx for the monitored sites, and the script checks that the monitor logs each check, sends the startup/DNS/HTTP alert e-mails, shuts down cleanly on `SIGINT` and flags a content change after a restart.
+
+```bash
+./harness/run.sh                                            # build from this checkout
+UPTIME_IMAGE=ghcr.io/dyanet/uptime:latest ./harness/run.sh  # test the published image
+bash harness/run.sh                                         # Windows: from Git Bash
+```
+
+A run takes a minute or two once the image exists; the first build from source adds a few minutes. See [harness/README.md](harness/README.md). Without Docker, `cargo test` runs the real binary against an in-test SMTP server (`tests/standalone.rs`).
 
 ## Configuration
 
@@ -68,6 +80,8 @@ Every option works as a CLI flag or an environment variable.
 | `--smtp-tls` | `UPTIME_SMTP_TLS` | `true` | Enable TLS (port 465 = implicit, port 587 = STARTTLS) |
 | `--log-file` | `UPTIME_LOG_FILE` | `/data/uptime.jsonl` | JSONL uptime log path |
 | `--error-log` | `UPTIME_ERROR_LOG` | `/data/errors.jsonl` | JSONL error log path |
+
+**DNS resolution.** Domain checks resolve names through Google Public DNS (`8.8.8.8` / `8.8.4.4`), not through the host's configured resolver. Names that only exist in a private or split-horizon DNS zone are therefore not resolvable, and on networks that block outbound DNS to Google every domain is reported as a DNS failure. The SMTP host and the daily SSL-expiry probe use the system resolver.
 
 ## Domain File Format
 

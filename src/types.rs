@@ -56,7 +56,7 @@ mod tests {
     #[test]
     fn display_formats_each_variant() {
         assert!(
-            AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, "boom"))
+            AppError::Io(std::io::Error::other("boom"))
                 .to_string()
                 .contains("IO error")
         );
