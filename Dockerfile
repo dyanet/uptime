@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/
 
 COPY --from=builder /app/target/release/uptime /usr/local/bin/uptime
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Strip CRLF so an image built from a Windows checkout (core.autocrlf) still has a valid shebang.
+RUN sed -i 's/$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
