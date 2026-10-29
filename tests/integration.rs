@@ -229,7 +229,11 @@ fn file_store_full_round_trip() {
 
 #[tokio::test]
 async fn check_real_domain_health() {
-    let result = uptime::checker::check_domain("google.com", Duration::from_secs(15)).await;
+    let client=reqwest::Client::builder().timeout(Duration::from_secs(15)).tls_info(true).build().unwrap();
+    let report=uptime::checker::check_domain_report("google.com",client).await;
+    let result=report.result;
+    let certificate=report.certificate_der.expect("verified HTTPS response should expose its peer certificate");
+    assert!(uptime::ssl_expiry::certificate_expiry_date(&certificate).unwrap()>=chrono::Utc::now().date_naive());
     assert!(result.dns_ok, "google.com DNS should resolve");
     assert!(result.ssl_error.is_none(), "google.com should have valid SSL");
     assert!(result.http_status.is_some(), "google.com should return HTTP status");
