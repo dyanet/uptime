@@ -25,6 +25,29 @@ pub async fn check_domain(domain: &str, timeout: Duration) -> CheckResult {
 /// Check using the caller's transport policy. Hosted deployments can enforce
 /// public-address resolution and bounded redirects without changing standalone behavior.
 pub async fn check_domain_with_client(domain: &str, client: Client) -> CheckResult {
+    check_domain_report(domain, client).await.result
+}
+
+/// Verified HTTP result and peer certificate for hosted expiry monitoring.
+pub struct TransportCheck {
+    pub result: CheckResult,
+    pub certificate_der: Option<Vec<u8>>,
+}
+
+pub async fn check_domain_report(domain: &str, client: Client) -> TransportCheck {
+    let mut certificate_der = None;
+    let result = check_domain_transport(domain, client, &mut certificate_der).await;
+    TransportCheck {
+        result,
+        certificate_der,
+    }
+}
+
+async fn check_domain_transport(
+    domain: &str,
+    client: Client,
+    certificate_der: &mut Option<Vec<u8>>,
+) -> CheckResult {
     let mut result = CheckResult {
         domain: domain.to_string(),
         dns_ok: false,
@@ -81,7 +104,7 @@ pub async fn check_domain_with_client(domain: &str, client: Client) -> CheckResu
                 result.error = Some(msg);
             } else if e.is_connect() {
                 // Check for SSL errors in the connect error chain.
-                let full = format!("{e}");
+                let full = error_detail(&e);
                 if full.contains("certificate")
                     || full.contains("SSL")
                     || full.contains("tls")
@@ -97,7 +120,7 @@ pub async fn check_domain_with_client(domain: &str, client: Client) -> CheckResu
                 }
             } else {
                 // Catch-all for other request errors; still check for SSL indicators.
-                let full = format!("{e}");
+                let full = error_detail(&e);
                 if full.contains("certificate")
                     || full.contains("SSL")
                     || full.contains("tls")
@@ -115,6 +138,12 @@ pub async fn check_domain_with_client(domain: &str, client: Client) -> CheckResu
             return result;
         }
     };
+
+    *certificate_der = response
+        .extensions()
+        .get::<reqwest::tls::TlsInfo>()
+        .and_then(|tls| tls.peer_certificate())
+        .map(|der| der.to_vec());
 
     // --- Detect redirect by comparing final URL to original request URL ---
     if response.url().as_str() != url {
@@ -195,7 +224,7 @@ async fn send_with_http_fallback(
     match client.get(https_url).send().await {
         Ok(resp) => Ok(resp),
         Err(e) => {
-            let full = format!("{e}");
+            let full = error_detail(&e);
             let looks_ssl = full.contains("certificate")
                 || full.contains("SSL")
                 || full.contains("tls")
@@ -211,6 +240,18 @@ async fn send_with_http_fallback(
             Err(e)
         }
     }
+}
+
+fn error_detail(error: &reqwest::Error) -> String {
+    use std::error::Error;
+    let mut detail = error.to_string();
+    let mut source = error.source();
+    while let Some(error) = source {
+        detail.push_str(": ");
+        detail.push_str(&error.to_string());
+        source = error.source();
+    }
+    detail
 }
 
 /// Compute the hex-encoded SHA-256 hash of a byte slice.

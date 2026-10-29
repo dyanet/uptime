@@ -36,6 +36,14 @@ const REDIRECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Key: domain, Value: last threshold that was emailed (e.g. 15, 7, 1, 0).
 pub type SslAlertState = HashMap<String, i64>;
 
+/// Parse the certificate already verified by an HTTP transport. Hosted jobs use
+/// this to avoid a second connection or an unguarded DNS/redirect lookup.
+pub fn certificate_expiry_date(der: &[u8]) -> Option<NaiveDate> {
+    let (_, certificate) = x509_parser::parse_x509_certificate(der).ok()?;
+    chrono::DateTime::from_timestamp(certificate.validity().not_after.timestamp(), 0)
+        .map(|date| date.date_naive())
+}
+
 /// Determine which threshold (if any) should trigger an email.
 ///
 /// Returns `Some(threshold)` if the domain has crossed a new threshold
@@ -219,7 +227,11 @@ enum Hop {
     /// First HTTPS target reached — this host's cert should be verified.
     Https(String),
     /// Another HTTP hop to follow on port 80.
-    Http { host: String, port: u16, path: String },
+    Http {
+        host: String,
+        port: u16,
+        path: String,
+    },
     /// Location we can't or won't follow (unknown scheme, malformed, etc.).
     Unsupported,
 }
@@ -234,7 +246,11 @@ fn resolve_https_host_via_redirects(domain: &str, max_hops: u8) -> Option<String
 /// Core redirect-following loop, parameterized by the starting port so it can be
 /// exercised against a local mock server in tests. Production always starts on
 /// port 80 via [`resolve_https_host_via_redirects`].
-fn resolve_https_host_starting_at(start_host: &str, start_port: u16, max_hops: u8) -> Option<String> {
+fn resolve_https_host_starting_at(
+    start_host: &str,
+    start_port: u16,
+    max_hops: u8,
+) -> Option<String> {
     let mut host = start_host.to_string();
     let mut port: u16 = start_port;
     let mut path = "/".to_string();
@@ -243,7 +259,11 @@ fn resolve_https_host_starting_at(start_host: &str, start_port: u16, max_hops: u
         let location = http_fetch_location(&host, port, &path, &host)?;
         match classify_location(&location, &host) {
             Hop::Https(h) => return Some(h),
-            Hop::Http { host: h, port: p, path: new_path } => {
+            Hop::Http {
+                host: h,
+                port: p,
+                path: new_path,
+            } => {
                 host = h;
                 port = p;
                 path = new_path;
@@ -308,7 +328,11 @@ fn split_authority(s: &str, default_port: u16) -> (String, u16, String) {
         Some((h, p)) => (h.to_string(), p.parse().unwrap_or(default_port)),
         None => (authority.to_string(), default_port),
     };
-    let path = if path.is_empty() { "/".to_string() } else { path.to_string() };
+    let path = if path.is_empty() {
+        "/".to_string()
+    } else {
+        path.to_string()
+    };
     (host, port, path)
 }
 
@@ -424,19 +448,25 @@ pub fn format_body(domain: &str, days: i64, expiry_date: &str) -> String {
     };
 
     let action = match days {
-        d if d <= 0 => "\
+        d if d <= 0 => {
+            "\
              - Renew your SSL certificate immediately\n\
              - If using Let's Encrypt, run your renewal command or check your automation\n\
              - Verify the new certificate is installed: openssl s_client -connect {domain}:443\n\
-             - Clear any CDN or proxy caches that may serve the old certificate",
-        d if d <= 1 => "\
+             - Clear any CDN or proxy caches that may serve the old certificate"
+        }
+        d if d <= 1 => {
+            "\
              - Renew your SSL certificate today\n\
              - If using Let's Encrypt, check that auto-renewal is working\n\
-             - Verify after renewal: openssl s_client -connect {domain}:443",
-        _ => "\
+             - Verify after renewal: openssl s_client -connect {domain}:443"
+        }
+        _ => {
+            "\
              - Schedule your SSL certificate renewal\n\
              - If using Let's Encrypt, confirm auto-renewal is configured\n\
-             - No immediate action required, but don't wait until the last day",
+             - No immediate action required, but don't wait until the last day"
+        }
     };
 
     let action = action.replace("{domain}", domain);
@@ -632,14 +662,23 @@ mod tests {
 
     #[test]
     fn classify_unsupported_scheme() {
-        assert_eq!(classify_location("ftp://example.com", "example.com"), Hop::Unsupported);
-        assert_eq!(classify_location("mailto:a@b.com", "example.com"), Hop::Unsupported);
+        assert_eq!(
+            classify_location("ftp://example.com", "example.com"),
+            Hop::Unsupported
+        );
+        assert_eq!(
+            classify_location("mailto:a@b.com", "example.com"),
+            Hop::Unsupported
+        );
     }
 
     #[test]
     fn parse_status_code_extracts_3xx() {
         assert_eq!(parse_status_code("HTTP/1.1 302 Found"), Some(302));
-        assert_eq!(parse_status_code("HTTP/1.0 301 Moved Permanently"), Some(301));
+        assert_eq!(
+            parse_status_code("HTTP/1.0 301 Moved Permanently"),
+            Some(301)
+        );
         assert_eq!(parse_status_code("HTTP/1.1 200 OK"), Some(200));
         assert_eq!(parse_status_code("garbage"), None);
     }
@@ -648,7 +687,10 @@ mod tests {
     fn find_header_end_crlf() {
         let buf = b"HTTP/1.1 302 Found\r\nLocation: https://x\r\n\r\nbody";
         let end = find_header_end(buf).unwrap();
-        assert_eq!(&buf[..end], b"HTTP/1.1 302 Found\r\nLocation: https://x\r\n\r\n");
+        assert_eq!(
+            &buf[..end],
+            b"HTTP/1.1 302 Found\r\nLocation: https://x\r\n\r\n"
+        );
     }
 
     /// Spawn a one-shot local HTTP server that replies with `response` to the
