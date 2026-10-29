@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use hickory_resolver::Resolver;
-use hickory_resolver::config::ResolverConfig;
-use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::config::{GOOGLE, ResolverConfig};
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use log::{error, info};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
@@ -13,6 +13,18 @@ use crate::types::CheckResult;
 ///
 /// On DNS failure, remaining checks are skipped and `dns_ok` is set to `false`.
 pub async fn check_domain(domain: &str, timeout: Duration) -> CheckResult {
+    let client = match Client::builder().timeout(timeout).build() {
+        Ok(client) => client,
+        Err(error) => {
+            return failed_result(domain, format!("failed to build HTTP client: {error}"));
+        }
+    };
+    check_domain_with_client(domain, client).await
+}
+
+/// Check using the caller's transport policy. Hosted deployments can enforce
+/// public-address resolution and bounded redirects without changing standalone behavior.
+pub async fn check_domain_with_client(domain: &str, client: Client) -> CheckResult {
     let mut result = CheckResult {
         domain: domain.to_string(),
         dns_ok: false,
@@ -26,11 +38,18 @@ pub async fn check_domain(domain: &str, timeout: Duration) -> CheckResult {
     };
 
     // --- DNS resolution ---
-    let resolver = Resolver::builder_with_config(
-        ResolverConfig::default(),
-        TokioConnectionProvider::default(),
+    let resolver = match Resolver::builder_with_config(
+        ResolverConfig::udp_and_tcp(&GOOGLE),
+        TokioRuntimeProvider::default(),
     )
-    .build();
+    .build()
+    {
+        Ok(resolver) => resolver,
+        Err(error) => {
+            result.error = Some(format!("DNS resolver initialization failed: {error}"));
+            return result;
+        }
+    };
 
     match resolver.lookup_ip(format!("{domain}.")).await {
         Ok(lookup) if lookup.iter().next().is_some() => {
@@ -52,21 +71,8 @@ pub async fn check_domain(domain: &str, timeout: Duration) -> CheckResult {
     }
 
     // --- HTTPS GET request ---
-    let client = match Client::builder()
-        .timeout(timeout)
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            let msg = format!("failed to build HTTP client: {e}");
-            error!("{domain}: {msg}");
-            result.error = Some(msg);
-            return result;
-        }
-    };
-
     let url = format!("https://{domain}/");
-    let response = match send_with_http_fallback(&client, domain, &url).await {
+    let mut response = match send_with_http_fallback(&client, domain, &url).await {
         Ok(resp) => resp,
         Err(e) => {
             if e.is_timeout() {
@@ -122,7 +128,7 @@ pub async fn check_domain(domain: &str, timeout: Duration) -> CheckResult {
 
     // --- Body processing for 2xx responses ---
     if (200..300).contains(&status) {
-        match response.bytes().await {
+        match read_bounded_body(&mut response).await {
             Ok(body) => {
                 let size = body.len() as u64;
                 let hash = compute_sha256(&body);
@@ -139,6 +145,34 @@ pub async fn check_domain(domain: &str, timeout: Duration) -> CheckResult {
     }
 
     result
+}
+
+/// A monitor should not download an unlimited streaming response into memory.
+/// This ceiling still permits ordinary pages while bounding concurrent checks.
+async fn read_bounded_body(response: &mut reqwest::Response) -> Result<Vec<u8>, String> {
+    const MAX_BODY: usize = 8 * 1024 * 1024;
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        if chunk.len() > MAX_BODY.saturating_sub(body.len()) {
+            return Err("response body exceeds 8 MiB monitoring limit".into());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+fn failed_result(domain: &str, error: String) -> CheckResult {
+    CheckResult {
+        domain: domain.into(),
+        dns_ok: false,
+        ssl_error: None,
+        http_status: None,
+        body_hash: None,
+        body_size: None,
+        error: Some(error),
+        redirected: false,
+        special_handling: 0,
+    }
 }
 
 /// Send a GET to the HTTPS URL, falling back to HTTP on a plain connectivity failure.
@@ -194,6 +228,49 @@ pub fn is_http_error(status: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn body_response(length: usize) -> reqwest::Response {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 4096];
+            let _ = socket.read(&mut request).await;
+            let header =
+                format!("HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n");
+            socket.write_all(header.as_bytes()).await.unwrap();
+            let _ = socket.write_all(&vec![b'x'; length]).await;
+        });
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn bounded_body_preserves_small_response() {
+        let mut response = body_response(128).await;
+        assert_eq!(
+            read_bounded_body(&mut response).await.unwrap(),
+            vec![b'x'; 128]
+        );
+    }
+
+    #[tokio::test]
+    async fn bounded_body_rejects_oversized_response() {
+        let mut response = body_response(8 * 1024 * 1024 + 1).await;
+        assert!(
+            read_bounded_body(&mut response)
+                .await
+                .unwrap_err()
+                .contains("8 MiB")
+        );
+    }
 
     #[test]
     fn sha256_deterministic() {

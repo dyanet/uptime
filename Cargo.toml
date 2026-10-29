@@ -2,25 +2,26 @@
 name = "uptime"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.97"
 
 [dependencies]
 uptime-store = { path = "uptime-store", features = ["file"] }
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
-hickory-resolver = "0.25"
+reqwest = { version = "0.13", features = ["rustls", "json"], default-features = false }
+hickory-resolver = "0.26"
 lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder"] }
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-jsonwebtoken = "9"
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 hex = "0.4"
 chrono = "0.4"
 log = "0.4"
 env_logger = "0.11"
 rustls = { version = "0.23", features = ["ring"] }
-webpki-roots = "0.26"
-x509-parser = "0.17"
+webpki-roots = "1"
+x509-parser = "0.18"
 
 [dev-dependencies]
 proptest = "1"
